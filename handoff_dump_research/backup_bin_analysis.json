@@ -1,0 +1,24 @@
+{
+  "file_size": 1148036,
+  "header_value": 16314,
+  "total_entries": 191339,
+  "unique_ids": 17433,
+  "format": {
+    "header": "2 bytes (uint16 LE) = 16314",
+    "entry_size": "6 bytes",
+    "entry_layout": "uint16_le value1 + uint16_le value2 + uint16_le setting_id",
+    "total_entries_calc": "(file_size - 2) / 6 = 191339 exact"
+  },
+  "id_range": "0x0000 - 0xffff",
+  "notes": [
+    "Header value 16314 does not match unique ID count (17433) or entry count (191339)",
+    "Most entries have v1=0; v2 carries the primary value",
+    "IDs repeat - each setting ID can have multiple entries (array values)",
+    "On-disk IDs are 2 bytes; the camera runtime API uses 4-byte IDs (e.g. 0x010d008f for language)",
+    "OpenMemories gist confirms readBackup()/writeBackup() API and setBackupProtection() toggle",
+    "a6400 lacks OpenMemories-Tweak support - No Tweaks found error",
+    "Telnet and ADB are marked as unavailable on a6400 by community research"
+  ],
+  "active_settings_count": 17350,
+  "zero_only_settings_count": 83
+}
