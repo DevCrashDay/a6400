@@ -33,6 +33,8 @@
 - 2026-10-26: Direct menu modification - /usr is read-only ext2, .uxc files are binary format, no repack tooling exists
 
 ## Findings
+- 2026-10-26: PMCA `pull` command truncates every file by exactly 32 KB (8 blocks of 4096). Max reliable transfer per pull is 884,736 bytes (864 KB). Chunking with dd count=224 skip+=216 compensates but doesn't scale for large partitions.
+- 2026-10-26: SD card shows in /proc/partitions as mmca10/mmca10p1 (major 250, minor 10/11, ~119 GB) but no /dev node exists. Must create with `mknod /tmp/sd b 250 11`. Card is exFAT which the Linux 3.0.27 kernel can't mount — needs FAT32 formatting.
 - 2026-10-26: a6400 uses CXD90045 SoC, same as ZV-E10 and ZV-1F. Research from those cameras may transfer.
 - 2026-10-26: libJiritsu.so present at /usr/lib/ - the Jiritsu subsystem used for code injection on ZV-E10 exists here
 - 2026-10-26: /etc is writable vfat (same partition as /tmp, nflasha10) - potential location for ld.so.preload
