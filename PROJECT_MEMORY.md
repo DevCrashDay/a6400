@@ -69,6 +69,8 @@
 - 2026-10-26: Button input passes through snd_InfraInputEvent_to_InputServant in libObj.so (PLT relocatable) — can be intercepted for custom menus
 - 2026-10-26: Live view driven by DMP SUGILITE hardware, /dev/dmpgles2, Guiengine_161H — no /dev/fb0. On-screen text can be intercepted via GEN_Label::setText / TextSprite. External HDMI recommended for video overlays.
 - 2026-10-26: Sony ARW files contain embedded JPEG preview within first 3MB — can be extracted by scanning for JPEG SOI/EOI markers
+- 2026-10-26: autoexec_hook.so internals verified against ELF: original libAK8975.so has NO DT_INIT, 14 dyn entries, DT_NULL terminator at file offset 0xac10. Builder overwrites 0x988 (.text start = exported func AKSC_InitDecomp8975, 148 bytes) with ARM constructor, and writes DT_INIT(0x988) at 0xac10 (the old DT_NULL). It only still parses because bytes at 0xac18 were already zero (accidental new terminator). Constructor logic (killswitch access checks, O_EXCL lock, double-fork, execve /bin/sh /tmp/autoexec.sh with NULL envp) confirmed correct.
+- 2026-10-26: Hook review found: (1) if /tmp is persistent flash, /tmp/autoexec.lock survives reboot → 2nd boot O_EXCL fails → hook self-disables permanently (verify /proc/mounts); (2) DT_NULL overwrite is fragile luck; (3) clobbered export AKSC_InitDecomp8975 can break real compass via soname interposition; (4) NULL envp leaves PATH unset for autoexec.sh; (5) hook's /mnt killswitch checks are no-ops at early boot since /mnt not yet mounted (autoexec.sh re-checks after mount); (6) no setsid, unauthenticated telnetd :2323.
 
 ## Open Issues
 - Backup.bin format not fully decoded — need to search for telnet/ADB/debug enable flags
