@@ -51,3 +51,4 @@
 
 ## Session Log
 - 2026-10-26: Thread "Launch homebrew apps from camera menu" - Researched all known paths to GUI-launched homebrew on the a6400. Created handoff6400_v3.zip with full write-up. Key finding: PMCA apps are not available, but Jiritsu/ld.so.preload injection and Backup.bin manipulation are promising alternatives.
+- 2026-10-26: Thread "Dump a6400 storage for offline research" - Created a6400_storage_dump_guide.md with full read-only dump procedure covering raw block-device dumps and filesystem pulls for all 16 non-zero NAND partitions (~1.2 GB total). Pushed to repo.
