@@ -33,6 +33,8 @@
 - 2026-10-26: Direct menu modification - /usr is read-only ext2, .uxc files are binary format, no repack tooling exists
 
 ## Findings
+- 2026-10-26: PMCA `pull` command truncates every file by exactly 32 KB (8 blocks of 4096). Max reliable transfer per pull is 884,736 bytes (864 KB). Chunking with dd count=224 skip+=216 compensates but doesn't scale for large partitions.
+- 2026-10-26: SD card shows in /proc/partitions as mmca10/mmca10p1 (major 250, minor 10/11, ~119 GB) but no /dev node exists. Must create with `mknod /tmp/sd b 250 11`. Card is exFAT which the Linux 3.0.27 kernel can't mount — needs FAT32 formatting.
 - 2026-10-26: a6400 uses CXD90045 SoC, same as ZV-E10 and ZV-1F. Research from those cameras may transfer.
 - 2026-10-26: libJiritsu.so present at /usr/lib/ - the Jiritsu subsystem used for code injection on ZV-E10 exists here
 - 2026-10-26: /etc is writable vfat (same partition as /tmp, nflasha10) - potential location for ld.so.preload
@@ -42,7 +44,7 @@
 - 2026-10-26: UI views defined in .uxc binary files, menu logic in libObj.so, uses "belt" directional navigation model
 
 ## Open Issues
-- Need to dump and analyze Backup.bin for hidden enable flags (telnet, ADB, debug)
+- Backup.bin extracted (1,148,036 bytes, SHA256: 9303ca57...ec16). Starts with 4-byte entries with R@/A markers. Need to decode setting ID+value format and search for telnet/ADB/debug enable flags.
 - Need to test if /etc/ld.so.preload works on this camera
 - Need to map which running processes load from writable paths
 - Need to check if /tmp/autoexec.sh or similar is read at boot
@@ -51,3 +53,4 @@
 
 ## Session Log
 - 2026-10-26: Thread "Launch homebrew apps from camera menu" - Researched all known paths to GUI-launched homebrew on the a6400. Created handoff6400_v3.zip with full write-up. Key finding: PMCA apps are not available, but Jiritsu/ld.so.preload injection and Backup.bin manipulation are promising alternatives.
+- 2026-10-26: Thread "Dump a6400 storage for offline research" - Created a6400_storage_dump_guide.md with full read-only dump procedure covering raw block-device dumps and filesystem pulls for all 16 non-zero NAND partitions (~1.2 GB total). Pushed to repo.
