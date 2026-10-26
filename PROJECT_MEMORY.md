@@ -44,7 +44,7 @@
 - 2026-10-26: UI views defined in .uxc binary files, menu logic in libObj.so, uses "belt" directional navigation model
 
 ## Open Issues
-- Need to dump and analyze Backup.bin for hidden enable flags (telnet, ADB, debug)
+- Backup.bin extracted (1,148,036 bytes, SHA256: 9303ca57...ec16). Starts with 4-byte entries with R@/A markers. Need to decode setting ID+value format and search for telnet/ADB/debug enable flags.
 - Need to test if /etc/ld.so.preload works on this camera
 - Need to map which running processes load from writable paths
 - Need to check if /tmp/autoexec.sh or similar is read at boot
