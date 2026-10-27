@@ -16,7 +16,7 @@ sleep 3
 echo ""
 echo "==== 3. Validate autoexec_hook.so ===="
 if [ -f /tmp/autoexec_hook.so ]; then
-    FSIZE=$(ls -la /tmp/autoexec_hook.so | awk '{print $5}')
+    FSIZE=$(wc -c < /tmp/autoexec_hook.so)
     echo "File size: $FSIZE bytes (expect 45428)"
     if [ "$FSIZE" = "45428" ]; then
         echo "Size OK"
