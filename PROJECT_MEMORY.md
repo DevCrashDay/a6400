@@ -69,6 +69,7 @@
 - 2026-10-26: Button input passes through snd_InfraInputEvent_to_InputServant in libObj.so (PLT relocatable) — can be intercepted for custom menus
 - 2026-10-26: Live view driven by DMP SUGILITE hardware, /dev/dmpgles2, Guiengine_161H — no /dev/fb0. On-screen text can be intercepted via GEN_Label::setText / TextSprite. External HDMI recommended for video overlays.
 - 2026-10-26: Sony ARW files contain embedded JPEG preview within first 3MB — can be extracted by scanning for JPEG SOI/EOI markers
+- 2026-10-27: BusyBox 1.13.4 on-camera is MISSING these applets: `head`, `od`, `hexdump`, `killall`, `nice`, `id`. Scripts must use only confirmed-available commands (cat, dd, grep, ls, echo, sleep, rm, kill, pidof, chmod, mount, sh, cat -v for byte inspection). All scripts MUST use LF (Unix) line endings — CRLF breaks the shebang, sleep args, and redirects in BusyBox ash.
 
 ## Open Issues
 - Backup.bin format not fully decoded — need to search for telnet/ADB/debug enable flags
@@ -82,3 +83,4 @@
 - 2026-10-26: Thread "Launch homebrew apps from camera menu" - Researched GUI homebrew paths. Created handoff6400_v3.zip.
 - 2026-10-26: Thread "Dump a6400 storage for offline research" - Created dump guide, pushed to repo.
 - 2026-10-26: Thread "Review latest local homebrew progress" - Reviewed massive local build-out: full homebrew platform with LD_PRELOAD boot persistence, film lab daemon, terminal menu, mobile web UI, desktop wizard, SDK with 5 examples, 6 utility tools, full partition dumps, and comprehensive docs. Updated PROJECT_MEMORY.md.
+- 2026-10-27: Thread "Fix camera diagnostic script" - Rewrote check.sh to fix CRLF line endings and replace missing BusyBox applets (head/od/killall/nice). Documented BusyBox limitations in Findings.
