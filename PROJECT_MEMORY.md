@@ -78,7 +78,7 @@
 - Backup.bin format not fully decoded — need to search for telnet/ADB/debug enable flags
 - L3 live view / framebuffer access still research-only (no /dev/fb0, display goes through DMP GPU)
 - Wi-Fi offload feature (FTP upload of developed photos) coded but not tested
-- ~~autoexec_hook.so boot persistence needs on-camera verification~~ Hook CONFIRMED firing 2026-10-27 (manual LD_PRELOAD). NEXT OPEN STEP: real reboot-persistence test — clear /tmp/autoexec.log+lock+pid, power-cycle camera, re-enter service shell, run verify-after-boot.sh to confirm a fresh boot-timestamped autoexec.log appears without any manual trigger.
+- ~~autoexec_hook.so boot persistence needs on-camera verification~~ **CONFIRMED 2026-10-27 via real cold boot.** verify-after-boot.sh showed autoexec.log at 00:00:35 (clock reset to 1970), ritual_daemon pid 786, fresh ritual.log — hook fired at power-on with no manual trigger, launched the full stack. "Address in use"/"already running" in the log is the expected idempotent re-entry, not a fault.
 - None of the new binaries (ritual_daemon, ritual_menu, arw_develop, etc.) have been confirmed running on camera yet — they're cross-compiled but need on-camera testing
 - Android partitions (nflasha16/17, 240MB) still unexplored
 
@@ -86,4 +86,4 @@
 - 2026-10-26: Thread "Launch homebrew apps from camera menu" - Researched GUI homebrew paths. Created handoff6400_v3.zip.
 - 2026-10-26: Thread "Dump a6400 storage for offline research" - Created dump guide, pushed to repo.
 - 2026-10-26: Thread "Review latest local homebrew progress" - Reviewed massive local build-out: full homebrew platform with LD_PRELOAD boot persistence, film lab daemon, terminal menu, mobile web UI, desktop wizard, SDK with 5 examples, 6 utility tools, full partition dumps, and comprehensive docs. Updated PROJECT_MEMORY.md.
-- 2026-10-27: Thread "Fix camera diagnostic script" - Rewrote check.sh to fix CRLF line endings and replace missing BusyBox applets (head/od/killall/nice). Documented BusyBox limitations in Findings.
+- 2026-10-27: Thread "Fix camera diagnostic script" - Rewrote check.sh (CRLF→LF, dropped missing applets head/od/killall/nice/awk/wc/cat -v, ps-based daemon cleanup), fixed nice in autoexec.sh, added verify-after-boot.sh. **Boot persistence CONFIRMED on real cold boot** — LD_PRELOAD hook fires at power-on and launches the full homebrew stack. Documented BusyBox limits in Findings.
