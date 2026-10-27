@@ -71,13 +71,14 @@
 - 2026-10-26: Sony ARW files contain embedded JPEG preview within first 3MB — can be extracted by scanning for JPEG SOI/EOI markers
 - 2026-10-27: BusyBox 1.13.4 on-camera is MISSING these applets/flags: `head`, `od`, `hexdump`, `killall`, `nice`, `awk`, `wc`, `id`, `cat -v`. The `cat` builtin only supports `-u`. Scripts must use only confirmed-available commands (cat, dd, grep, ls, echo, sleep, rm, kill, pidof, chmod, mount, sh, cp, mv, mkdir, df, ps, tr, test/[). All scripts MUST use LF (Unix) line endings — CRLF breaks the shebang, sleep args, and redirects in BusyBox ash.
 - 2026-10-27: Portable file-size without wc/awk/stat: `set -- $(ls -l FILE); SIZE=$5` (size is the 5th field of `ls -l`). Uses only the shell's own field splitting.
-- 2026-10-27: LD_PRELOAD boot hook CONFIRMED WORKING on camera. autoexec.log shows: telnetd on 2323, web UI on 8080, film engine + watchdog launched. The `nice -n 19` calls in autoexec.sh failed (no nice applet) causing watchdog restart loop — fixed by removing nice prefix.
+- 2026-10-27: LD_PRELOAD hook CONFIRMED firing on camera (via manual LD_PRELOAD). autoexec.log shows telnetd 2323, web UI 8080, film engine + watchdog launched. `nice` fix VERIFIED on-camera (ritual.log now clean, just "[Ritual] a6400 In-Camera Film Lab starting...", zero nice errors). check.sh v4 working (size check via `ls -l` field split, stale-daemon cleanup).
+- 2026-10-27: busybox-wrapped daemons need ps-matching to kill, not pidof: httpd/telnetd run as `/tmp/busybox httpd ...` (argv[0]=busybox) and watchdog as `/bin/sh /mnt/watchdog.sh`, so `pidof httpd`/`pidof watchdog.sh` miss them. Match on `ps | grep PATTERN` instead.
 
 ## Open Issues
 - Backup.bin format not fully decoded — need to search for telnet/ADB/debug enable flags
 - L3 live view / framebuffer access still research-only (no /dev/fb0, display goes through DMP GPU)
 - Wi-Fi offload feature (FTP upload of developed photos) coded but not tested
-- ~~autoexec_hook.so boot persistence needs on-camera verification~~ CONFIRMED 2026-10-27: hook fires, launches telnetd/httpd/ritual_daemon/watchdog
+- ~~autoexec_hook.so boot persistence needs on-camera verification~~ Hook CONFIRMED firing 2026-10-27 (manual LD_PRELOAD). NEXT OPEN STEP: real reboot-persistence test — clear /tmp/autoexec.log+lock+pid, power-cycle camera, re-enter service shell, run verify-after-boot.sh to confirm a fresh boot-timestamped autoexec.log appears without any manual trigger.
 - None of the new binaries (ritual_daemon, ritual_menu, arw_develop, etc.) have been confirmed running on camera yet — they're cross-compiled but need on-camera testing
 - Android partitions (nflasha16/17, 240MB) still unexplored
 

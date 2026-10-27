@@ -76,15 +76,14 @@ else
 fi
 # Kill stale homebrew daemons so each run starts clean (no "Address in use",
 # no "already running"). /tmp is persistent flash and there's no reboot
-# between test runs, so prior instances survive.
-for PROC in ritual_daemon watchdog.sh httpd telnetd; do
-    PIDS=$(pidof "$PROC" 2>/dev/null)
-    if [ -n "$PIDS" ]; then
-        for P in $PIDS; do
-            kill "$P" 2>/dev/null
-        done
-        echo "killed stale $PROC: $PIDS"
-    fi
+# between test runs, so prior instances survive. pidof misses these because
+# httpd/telnetd run as "/tmp/busybox httpd ..." (argv[0]=busybox) and the
+# watchdog runs as "/bin/sh /mnt/watchdog.sh" — so match on ps output instead.
+for PAT in ritual_daemon telnetd httpd watchdog; do
+    ps | grep "$PAT" | grep -v grep | grep -v check.sh | while read PID REST; do
+        kill "$PID" 2>/dev/null
+        echo "killed stale $PAT (pid $PID)"
+    done
 done
 # Clear stale logs and watchdog pid so this run's output is fresh
 rm -f /tmp/ritual.log /tmp/watchdog.log /tmp/watchdog.pid
