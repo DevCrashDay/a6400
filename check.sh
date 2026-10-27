@@ -14,23 +14,20 @@ echo "(expect autoexec_hook.so = 45428 bytes)"
 sleep 3
 
 echo ""
-echo "==== 3. ELF magic (expect: 7f 45 4c 46 ... 28 00 = ARM) ===="
+echo "==== 3. Validate autoexec_hook.so ===="
 if [ -f /tmp/autoexec_hook.so ]; then
-    MAGIC=$(dd if=/tmp/autoexec_hook.so bs=1 count=6 2>/dev/null)
-    BYTE1=$(dd if=/tmp/autoexec_hook.so bs=1 skip=0 count=1 2>/dev/null | cat -v)
-    BYTE2=$(dd if=/tmp/autoexec_hook.so bs=1 skip=1 count=1 2>/dev/null | cat -v)
-    BYTE3=$(dd if=/tmp/autoexec_hook.so bs=1 skip=2 count=1 2>/dev/null | cat -v)
-    BYTE4=$(dd if=/tmp/autoexec_hook.so bs=1 skip=3 count=1 2>/dev/null | cat -v)
-    echo "First 4 bytes (cat -v): $BYTE1 $BYTE2 $BYTE3 $BYTE4"
-    if echo "$BYTE1" | grep -q "\\^\\?"; then
-        echo "Byte 0 = 0x7f (DEL) - OK (ELF signature)"
+    FSIZE=$(ls -la /tmp/autoexec_hook.so | awk '{print $5}')
+    echo "File size: $FSIZE bytes (expect 45428)"
+    if [ "$FSIZE" = "45428" ]; then
+        echo "Size OK"
     else
-        echo "WARNING: Byte 0 is NOT 0x7f — may not be a valid ELF"
+        echo "WARNING: size mismatch — file may be truncated or corrupt"
     fi
-    if [ "$BYTE2" = "E" ] && [ "$BYTE3" = "L" ] && [ "$BYTE4" = "F" ]; then
-        echo "Bytes 1-3 = ELF — valid ELF header confirmed"
+    ELF_STR=$(dd if=/tmp/autoexec_hook.so bs=1 skip=1 count=3 2>/dev/null)
+    if [ "$ELF_STR" = "ELF" ]; then
+        echo "ELF signature: OK (bytes 1-3 = ELF)"
     else
-        echo "WARNING: Bytes 1-3 not 'ELF' — file may be corrupt"
+        echo "WARNING: bytes 1-3 are not 'ELF' — may not be a valid ELF"
     fi
 else
     echo "autoexec_hook.so NOT FOUND at /tmp/autoexec_hook.so"
@@ -95,10 +92,31 @@ sleep 2
 HOOKPIDS=$(pidof autoexec.sh 2>/dev/null)
 if [ -n "$HOOKPIDS" ]; then
     echo "SUCCESS: autoexec.sh is running (pids: $HOOKPIDS)"
+elif [ -f /tmp/autoexec.log ] && [ -s /tmp/autoexec.log ]; then
+    echo "SUCCESS: autoexec.log exists and is non-empty — hook fired"
+    echo "(autoexec.sh likely finished or is running under a different name)"
+elif [ -f /tmp/autoexec.lock ]; then
+    echo "LIKELY SUCCESS: autoexec.lock exists — hook started"
+    echo "(autoexec.sh may have finished quickly)"
 else
-    echo "autoexec.sh not detected — hook may not have fired"
-    echo "Check /tmp/autoexec.lock and /tmp/autoexec.log if they exist:"
-    ls -la /tmp/autoexec.lock /tmp/autoexec.log 2>&1
+    echo "FAIL: no lock, no log, no process — hook did not fire"
+fi
+ls -la /tmp/autoexec.lock /tmp/autoexec.log 2>&1
+
+echo ""
+echo "==== 8. autoexec.log contents ===="
+if [ -f /tmp/autoexec.log ]; then
+    cat /tmp/autoexec.log
+else
+    echo "(no autoexec.log)"
+fi
+
+echo ""
+echo "==== 9. ritual.log contents ===="
+if [ -f /tmp/ritual.log ]; then
+    cat /tmp/ritual.log
+else
+    echo "(no ritual.log)"
 fi
 
 echo ""

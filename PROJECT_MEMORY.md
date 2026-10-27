@@ -69,7 +69,7 @@
 - 2026-10-26: Button input passes through snd_InfraInputEvent_to_InputServant in libObj.so (PLT relocatable) — can be intercepted for custom menus
 - 2026-10-26: Live view driven by DMP SUGILITE hardware, /dev/dmpgles2, Guiengine_161H — no /dev/fb0. On-screen text can be intercepted via GEN_Label::setText / TextSprite. External HDMI recommended for video overlays.
 - 2026-10-26: Sony ARW files contain embedded JPEG preview within first 3MB — can be extracted by scanning for JPEG SOI/EOI markers
-- 2026-10-27: BusyBox 1.13.4 on-camera is MISSING these applets: `head`, `od`, `hexdump`, `killall`, `nice`, `id`. Scripts must use only confirmed-available commands (cat, dd, grep, ls, echo, sleep, rm, kill, pidof, chmod, mount, sh, cat -v for byte inspection). All scripts MUST use LF (Unix) line endings — CRLF breaks the shebang, sleep args, and redirects in BusyBox ash.
+- 2026-10-27: BusyBox 1.13.4 on-camera is MISSING these applets/flags: `head`, `od`, `hexdump`, `killall`, `nice`, `id`, `cat -v`. The `cat` builtin only supports `-u`. Scripts must use only confirmed-available commands (cat, dd, grep, ls, echo, sleep, rm, kill, pidof, chmod, mount, sh, awk). All scripts MUST use LF (Unix) line endings — CRLF breaks the shebang, sleep args, and redirects in BusyBox ash.
 
 ## Open Issues
 - Backup.bin format not fully decoded — need to search for telnet/ADB/debug enable flags
