@@ -69,7 +69,8 @@
 - 2026-10-26: Button input passes through snd_InfraInputEvent_to_InputServant in libObj.so (PLT relocatable) — can be intercepted for custom menus
 - 2026-10-26: Live view driven by DMP SUGILITE hardware, /dev/dmpgles2, Guiengine_161H — no /dev/fb0. On-screen text can be intercepted via GEN_Label::setText / TextSprite. External HDMI recommended for video overlays.
 - 2026-10-26: Sony ARW files contain embedded JPEG preview within first 3MB — can be extracted by scanning for JPEG SOI/EOI markers
-- 2026-10-27: BusyBox 1.13.4 on-camera is MISSING these applets/flags: `head`, `od`, `hexdump`, `killall`, `nice`, `awk`, `id`, `cat -v`. The `cat` builtin only supports `-u`. Scripts must use only confirmed-available commands (cat, dd, grep, ls, echo, sleep, rm, kill, pidof, chmod, mount, sh, wc, cp, mv, mkdir, df, ps, tr, test/[). All scripts MUST use LF (Unix) line endings — CRLF breaks the shebang, sleep args, and redirects in BusyBox ash.
+- 2026-10-27: BusyBox 1.13.4 on-camera is MISSING these applets/flags: `head`, `od`, `hexdump`, `killall`, `nice`, `awk`, `wc`, `id`, `cat -v`. The `cat` builtin only supports `-u`. Scripts must use only confirmed-available commands (cat, dd, grep, ls, echo, sleep, rm, kill, pidof, chmod, mount, sh, cp, mv, mkdir, df, ps, tr, test/[). All scripts MUST use LF (Unix) line endings — CRLF breaks the shebang, sleep args, and redirects in BusyBox ash.
+- 2026-10-27: Portable file-size without wc/awk/stat: `set -- $(ls -l FILE); SIZE=$5` (size is the 5th field of `ls -l`). Uses only the shell's own field splitting.
 - 2026-10-27: LD_PRELOAD boot hook CONFIRMED WORKING on camera. autoexec.log shows: telnetd on 2323, web UI on 8080, film engine + watchdog launched. The `nice -n 19` calls in autoexec.sh failed (no nice applet) causing watchdog restart loop — fixed by removing nice prefix.
 
 ## Open Issues

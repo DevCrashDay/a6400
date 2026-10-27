@@ -16,7 +16,8 @@ sleep 3
 echo ""
 echo "==== 3. Validate autoexec_hook.so ===="
 if [ -f /tmp/autoexec_hook.so ]; then
-    FSIZE=$(wc -c < /tmp/autoexec_hook.so)
+    set -- $(ls -l /tmp/autoexec_hook.so)
+    FSIZE=$5
     echo "File size: $FSIZE bytes (expect 45428)"
     if [ "$FSIZE" = "45428" ]; then
         echo "Size OK"
@@ -73,7 +74,21 @@ if [ -n "$HOOKPIDS" ]; then
 else
     echo "no autoexec.sh processes running"
 fi
-echo "cleared"
+# Kill stale homebrew daemons so each run starts clean (no "Address in use",
+# no "already running"). /tmp is persistent flash and there's no reboot
+# between test runs, so prior instances survive.
+for PROC in ritual_daemon watchdog.sh httpd telnetd; do
+    PIDS=$(pidof "$PROC" 2>/dev/null)
+    if [ -n "$PIDS" ]; then
+        for P in $PIDS; do
+            kill "$P" 2>/dev/null
+        done
+        echo "killed stale $PROC: $PIDS"
+    fi
+done
+# Clear stale logs and watchdog pid so this run's output is fresh
+rm -f /tmp/ritual.log /tmp/watchdog.log /tmp/watchdog.pid
+echo "cleared logs and stale daemons"
 sleep 3
 
 echo ""
