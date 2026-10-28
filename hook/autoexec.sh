@@ -79,11 +79,11 @@ if [ -d /mnt/www ] && [ -x /tmp/busybox ]; then
     echo "[+] The Ritual Web UI listening on port 8080" >> /tmp/autoexec.log
 fi
 
-# 7. Start The Ritual In-Camera Film Engine (lowest priority nice 19).
+# 7. Start The Ritual In-Camera Film Engine.
 #    Idempotent: only start if it is not already running, so a re-entry of this
 #    script (after the boot lock was cleared) never spawns a second daemon.
 if [ -x /tmp/ritual_daemon ] && ! pidof ritual_daemon >/dev/null 2>&1; then
-    nice -n 19 /tmp/ritual_daemon >> /tmp/ritual.log 2>&1 &
+    /tmp/ritual_daemon >> /tmp/ritual.log 2>&1 &
     echo "[+] The Ritual film engine launched in background!" >> /tmp/autoexec.log
 else
     echo "[i] ritual_daemon not started (missing or already running)" >> /tmp/autoexec.log
@@ -96,10 +96,10 @@ watchdog_alive() {
 }
 if ! watchdog_alive; then
     if [ -f /mnt/watchdog.sh ]; then
-        nice -n 19 /bin/sh /mnt/watchdog.sh >> /tmp/watchdog.log 2>&1 &
+        /bin/sh /mnt/watchdog.sh >> /tmp/watchdog.log 2>&1 &
         echo "[+] Watchdog supervisor active" >> /tmp/autoexec.log
     elif [ -f /mnt/a6400hb/watchdog.sh ]; then
-        nice -n 19 /bin/sh /mnt/a6400hb/watchdog.sh >> /tmp/watchdog.log 2>&1 &
+        /bin/sh /mnt/a6400hb/watchdog.sh >> /tmp/watchdog.log 2>&1 &
         echo "[+] Watchdog supervisor active" >> /tmp/autoexec.log
     fi
 else
