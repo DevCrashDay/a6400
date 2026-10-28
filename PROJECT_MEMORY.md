@@ -58,6 +58,7 @@
 - 2026-10-26: /dev/fb0 does NOT exist — display driven by DMP SUGILITE GPU via /dev/dmpgles2 and Guiengine_161H. No direct framebuffer access for overlays.
 
 ## Findings
+- 2026-10-28: Complete remote key table (46 entries) extracted from libObj.so KEY_REMOTE_* string table (block 0x1a of Backup property 0x7A0001). Includes focus step keys: STEP_FOCUS_NEAR=0x1A000029, STEP_FOCUS_FAR=0x1A00002A, FOCUS_DRIVE_NEAR_FAR=0x1A00001F. Also found remote keys for ISO+/-, aperture+/-, shutter speed+/-, exp comp, AF area, focus magnifier, d-pad, AF/MF toggle. Full table in focus_bracket/FOCUS_STEP_RESEARCH.md.
 - 2026-10-26: PMCA `pull` command truncates every file by exactly 32 KB. Chunking with dd compensates.
 - 2026-10-26: SD card needs FAT32 formatting (kernel can't mount exFAT). Create dev node with `mknod /tmp/sd b 250 11`.
 - 2026-10-26: a6400 uses CXD90045 SoC (4x ARM Cortex-A5, ~600-800 MHz), same as ZV-E10 and ZV-1F
@@ -82,3 +83,4 @@
 - 2026-10-26: Thread "Launch homebrew apps from camera menu" - Researched GUI homebrew paths. Created handoff6400_v3.zip.
 - 2026-10-26: Thread "Dump a6400 storage for offline research" - Created dump guide, pushed to repo.
 - 2026-10-26: Thread "Review latest local homebrew progress" - Reviewed massive local build-out: full homebrew platform with LD_PRELOAD boot persistence, film lab daemon, terminal menu, mobile web UI, desktop wizard, SDK with 5 examples, 6 utility tools, full partition dumps, and comprehensive docs. Updated PROJECT_MEMORY.md.
+- 2026-10-28: Thread "Add focus stacking bracketing" - Derived focus step key codes from firmware key table. Built focus_bracket.sh + probe_focus.sh + research doc. PR #7.
