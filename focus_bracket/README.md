@@ -1,91 +1,64 @@
-# focus_bracket/ — Focus Stacking for the a6400
+# focus_bracket/ — focus stacking on the a6400
 
-Shoot a series of frames while stepping the focus between each shot,
-for later stacking in Helicon Focus, Zerene Stacker, Photoshop, or
-similar software. Runs entirely on the camera via the service shell —
-no phone, Wi-Fi, or cable needed.
+Shoots a series of frames while stepping the focus between shots, for
+stacking in Helicon Focus, Zerene Stacker, Photoshop and the like. Runs on
+the camera from the service shell; no phone, Wi-Fi or cable.
 
-## How it works
+It injects the Wi-Fi remote's step-focus keys (`0x1A00002F` near,
+`0x1A000030` far) and the S1/S2 shutter keys through the camera's InfraInput
+test hook. See [FOCUS_STEP_RESEARCH.md](FOCUS_STEP_RESEARCH.md).
 
-The camera's InfraInput test hook accepts virtual key events. We inject
-`KEY_REMOTE_STEP_FOCUS_NEAR` (`0x1A000029`) or `KEY_REMOTE_STEP_FOCUS_FAR`
-(`0x1A00002A`) to move the focus plane, then fire the shutter with the same
-S1/S2 keys used by `astro/shutter.sh`.
+**Status: untested on camera.** Run `probe_focus.sh` first.
 
-See [`FOCUS_STEP_RESEARCH.md`](FOCUS_STEP_RESEARCH.md) for the full evidence
-chain and the complete remote key table.
+## Setup
 
-## Prerequisites
-
-- Camera in **MF** mode (so AF does not override the focus steps)
-- Lens focused manually on the nearest (or farthest) subject
-- Shutter speed, aperture, ISO set as desired (M or A mode recommended)
-- Long Exposure NR **off** (avoids double-length waits between frames)
-- Tripod or stable surface
-
-## Quick start
-
-### 1. Test focus stepping (no pictures taken)
+- Focus mode **MF**, lens focused on the nearest point (or the farthest, for `-d near`)
+- M or A mode, Long Exposure NR **off**, tripod
+- Copy the three scripts to the camera with LF line endings:
 
 ```sh
-# Copy scripts to camera
-cp focus_bracket.sh probe_focus.sh shutter.sh /tmp/
-chmod +x /tmp/probe_focus.sh /tmp/focus_bracket.sh /tmp/shutter.sh
-
-# Run the probe — watch live view for focus movement
-/tmp/probe_focus.sh
+cp shutter.sh probe_focus.sh focus_bracket.sh /tmp/
+chmod +x /tmp/shutter.sh /tmp/probe_focus.sh /tmp/focus_bracket.sh
 ```
 
-### 2. Shoot a focus bracket
+## 1. Probe (takes no pictures)
 
 ```sh
-# 20 frames, 2 steps between each, near-to-far
-/tmp/focus_bracket.sh -n 20 -s 2 -d far
+/tmp/probe_focus.sh            # 3 steps near, then 3 far; watch live view
+/tmp/probe_focus.sh far 1      # a single step
+```
 
-# 30 fine slices (1 step each), run in background
-/tmp/focus_bracket.sh -n 30 -s 1 -d far --bg
+If anything other than focus changes (WB lock, a mode switch), stop and
+report it.
 
-# Check progress
+## 2. Bracket
+
+```sh
+/tmp/focus_bracket.sh -n 5 -s 1 -d far          # small first test
+/tmp/focus_bracket.sh -n 30 -s 2 -d far --bg    # real run in background
 /tmp/focus_bracket.sh status
-
-# Stop after the current frame
-/tmp/focus_bracket.sh stop
+/tmp/focus_bracket.sh stop                      # after the current frame
+/tmp/focus_bracket.sh abort                     # now, releases all keys
 ```
 
-## Options
-
-| Flag | Default | Description |
+| Flag | Default | Meaning |
 |---|---|---|
-| `-n COUNT` | 10 | Number of frames to shoot |
-| `-s STEPS` | 2 | Focus steps between each frame |
-| `-d DIR` | far | Direction: `far` (near-to-far) or `near` (far-to-near) |
-| `-w WAIT` | 2 | Seconds after stepping before taking the shot |
-| `-i INTERVAL` | 5 | Minimum seconds between frames (start-to-start) |
-| `--settle MS` | 200 | Pause between individual focus key events (ms) |
-| `--bg` | — | Run in background, log to `/tmp/focus.log` |
+| `-n COUNT` | 10 | Frames to shoot (at least 2) |
+| `-s STEPS` | 2 | Focus steps between frames |
+| `-d far\|near` | far | Direction of travel |
+| `-w WAIT` | 2 | Seconds after stepping before the shot |
+| `-g GAP` | 1 | Seconds between single steps (0 = none) |
+| `-i INTERVAL` | 5 | Minimum seconds frame start to frame start |
+| `--bg` | | Background run, log in `/tmp/focus.log` |
 
-## Tips
-
-- **Step size** depends on the lens. Start with `-s 1` and check whether
-  adjacent frames overlap in depth of field. Increase if there is too much
-  overlap (wastes frames) or decrease if there are gaps.
-- **Direction**: for macro work, start focused at the nearest point and
-  step `far`. For landscapes, start at the far point and step `near`.
-- **Dry run**: set `SHUTTER_DRYRUN=1` to print the key events without
-  sending them: `SHUTTER_DRYRUN=1 /tmp/focus_bracket.sh -n 5 -s 2`
+The script stops on the first failed key send, since the lens position is
+then unknown. `SHUTTER_DRYRUN=1` prints the key events instead of sending them.
 
 ## Files
 
-| File | Description |
+| File | |
 |---|---|
-| `focus_bracket.sh` | Main focus stacking script |
-| `probe_focus.sh` | Test focus stepping without taking pictures |
-| `shutter.sh` | Shutter trigger library (same as `astro/shutter.sh`) |
-| `FOCUS_STEP_RESEARCH.md` | Firmware analysis: how focus stepping works |
-
-## Status
-
-**Untested on camera.** The key codes are derived from static firmware
-analysis (same method that found the shutter keys in PR #6). Run
-`probe_focus.sh` first to confirm focus stepping works before shooting
-a real bracket.
+| `focus_bracket.sh` | The bracket script |
+| `probe_focus.sh` | Focus step test, no pictures |
+| `shutter.sh` | Key sender and shutter functions, same as `astro/shutter.sh` from PR #6 |
+| `FOCUS_STEP_RESEARCH.md` | How the key codes were found |
