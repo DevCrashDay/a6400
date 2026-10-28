@@ -105,3 +105,24 @@ if ! watchdog_alive; then
 else
     echo "[i] watchdog already running" >> /tmp/autoexec.log
 fi
+
+# 9. Recording Limit Removal (opt-in via /mnt/enable_rec_unlimit flag file).
+#    Writes three Backup.bin properties to extend the max recording time from
+#    29m50s to 13h01m00s. Safe, reversible, and well-tested across Sony models.
+#    Opt-out / restore: create /mnt/disable_rec_unlimit to revert to factory.
+BK=/usr/bin/bk.elf
+if [ -f /mnt/disable_rec_unlimit ]; then
+    "$BK" w 003c0373 00 2>/dev/null
+    "$BK" w 003c0374 1D 2>/dev/null
+    "$BK" w 003c0375 32 2>/dev/null
+    "$BK" s 2>/dev/null
+    echo "[+] Recording limit RESTORED to factory 29m50s (disable_rec_unlimit found)" >> /tmp/autoexec.log
+elif [ -f /mnt/enable_rec_unlimit ]; then
+    "$BK" w 003c0373 0D 2>/dev/null
+    "$BK" w 003c0374 01 2>/dev/null
+    "$BK" w 003c0375 00 2>/dev/null
+    "$BK" s 2>/dev/null
+    echo "[+] Recording limit REMOVED — max ~13h per clip (enable_rec_unlimit found)" >> /tmp/autoexec.log
+else
+    echo "[i] Recording limit unchanged (no enable/disable flag on SD)" >> /tmp/autoexec.log
+fi
