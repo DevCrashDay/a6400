@@ -13,11 +13,13 @@
 - Shell-based tools: `probe.sh` (hardware/access probe), `watchdog.sh` (supervisor/killswitch monitor), `wifi_offload.sh`, `intervalometer.sh`, `focus_bracket.sh`, `aeb_hdr.sh`
 - Full partition dump completed: DUMP/ folder has 22 raw images of all NAND partitions (nflasha1 through nflasha23, plus variants like _setting, _wbi, _jiritsu, _work, _lens)
 - Comprehensive documentation: README.md, CAPABILITIES.md, DEVELOPER_GUIDE.md, DRIVER_SETUP_GUIDE.md, USER_GUIDE.md, TROUBLESHOOTING.md
+- Script-driven shutter WORKS on camera (2026-10-29): `astro/shutter.sh` half-press, single shot and 45 s bulb all confirmed via Sony's InfraInput test hook (`sndcmd.elf --sync 0x007A018C`), with no phone connected. Next step: field test `astro/intervalometer.sh`.
 
 ## Decisions
 - 2026-10-26: Focus on Backup.bin analysis and ld.so.preload testing as most promising paths to persistent/GUI homebrew, rather than firmware modification (which is blocked by encryption)
 - 2026-10-26: LD_PRELOAD via patched libAK8975.so chosen as boot persistence mechanism. Constructor uses ARM syscalls directly (sys_access, sys_open O_EXCL atomic lock, sys_fork double-fork, sys_execve) to launch autoexec.sh
 - 2026-10-26: Safety-first design: triple killswitch (SD card `/mnt/disable_hook`, `/mnt/disable.txt`, `/tmp/disable_hook`), zero NAND writes policy, all homebrew runs at nice -n 19
+- 2026-10-28: Shutter control uses key injection (virtual Wi-Fi-remote S1/S2 keys 0x1A00000D/0x1A00000E through InfraInput test cmd 2) instead of PTP/IP or the Remote API, because it needs no Wi-Fi session, no HTTP client and uses only stock binaries. Remote API on :10000 kept as fallback.
 
 ## Done
 - 2026-10-26: Confirmed service shell access via pmca-console serviceshell
@@ -40,8 +42,10 @@
 - 2026-10-26: Compiled BusyBox 1.31 static ARMv7 binary (busybox_armv7, 1.1MB) for telnetd/httpd/utilities
 - 2026-10-26: Completed full NAND partition dump — 22 raw images in DUMP/ folder covering all partitions
 - 2026-10-26: Created comprehensive documentation suite (README, CAPABILITIES, DEVELOPER_GUIDE, DRIVER_SETUP_GUIDE, USER_GUIDE, TROUBLESHOOTING)
+- 2026-10-28: Built `astro/shutter.sh` (shot/bulb/half/release), `astro/intervalometer.sh` (count/interval/bulb/delay, --bg, stop/abort/status, clock-scheduled), `astro/probe_shutter.sh`; tested with the camera's own BusyBox 1.13.4 ash under qemu-arm. Research write-up: `research/SHUTTER_TRIGGER_RESEARCH.md`.
 
 ## What Worked
+- 2026-10-29: CONFIRMED on camera (fw 2.00, no phone connected): `probe_shutter.sh half` autofocuses 3 s without shooting, `probe_shutter.sh` takes a picture, `shutter.sh bulb 45` in M/BULB gives a 45 s exposure. sndcmd prints nothing and returns 0. Ports 10000/15740 closed in normal shooting mode.
 - 2026-10-29: Script shutter via InfraInput test hook confirmed on camera: focus_bracket.sh took 10 pictures with S1/S2 keys 0x1A00000D/0x1A00000E (sndcmd.elf --sync 0x007A018C). ~1 s per sndcmd call.
 - 2026-10-26: pmca-console-v0.18-win.exe serviceshell gives root shell. USB must be Mass Storage mode.
 - 2026-10-26: Static ARMv7 ELF with raw syscalls runs on camera from /tmp
@@ -51,6 +55,7 @@
 - 2026-10-26: BusyBox 1.31 static build provides telnetd (port 2323) and httpd (port 8080) on camera
 - 2026-10-26: PTP/IP server runs on camera localhost:15740 when "Ctrl w/ Smartphone" is enabled — allows shutter/focus/EV control from userspace
 - 2026-10-26: Camera has ~400-600MB free RAM under normal shooting — plenty for background image processing at nice -n 19
+- 2026-10-28: Running the camera's real BusyBox (`nflasha7_unpacked/bin/busybox` + `/lib`) under `qemu-arm -L sysroot` to test scripts. Needs chmod +x on the extracted files and symlinks ld-linux.so.3/libc.so.6/libcrypt.so.1; external applets need wrapper scripts because there is no binfmt in the container.
 
 ## What Didn't Work
 - 2026-10-29: STEP_FOCUS_NEAR/FAR keys (0x1A00002F/0x1A000030, ex_info 0) sent OK but did not move the SEL18135 in Focus Mode MF.
@@ -59,6 +64,7 @@
 - 2026-10-26: OpenMemories-Tweak - requires PMCA app install, cannot be used on a6400 directly
 - 2026-10-26: Direct menu modification - /usr is read-only ext2, .uxc files are binary format, no repack tooling exists
 - 2026-10-26: /dev/fb0 does NOT exist — display driven by DMP SUGILITE GPU via /dev/dmpgles2 and Guiengine_161H. No direct framebuffer access for overlays.
+- 2026-10-28: Treating `/mnt/project-files/Backup.bin` (from /setting) as BK4 format: it is not (starts `ba 3f 00 00 ...`). The parseable BK4 backups are the firmware defaults in `0110_backup/SYSASTRA-DSLR/DX2/CX626*.bin`. The older `analyze_backup_bin.py` 6-byte-entry layout is a guess and not the real format.
 
 ## Findings
 - 2026-10-29: USB PC remote focus (PTP 0xD2D1 Near/Far) = key FOCUS_DRIVE_NEAR_FAR 0x1A000025 press+release with signed short step in ex_info (-=near, +=far; 1/3/7). Source: libInfraRemote.so CtrlCode2InputKey 0xb522, actionControlDevice 0xbb96. focus_bracket/focus.sh uses this; untested on camera.
@@ -74,6 +80,12 @@
 - 2026-10-26: Button input passes through snd_InfraInputEvent_to_InputServant in libObj.so (PLT relocatable) — can be intercepted for custom menus
 - 2026-10-26: Live view driven by DMP SUGILITE hardware, /dev/dmpgles2, Guiengine_161H — no /dev/fb0. On-screen text can be intercepted via GEN_Label::setText / TextSprite. External HDMI recommended for video overlays.
 - 2026-10-26: Sony ARW files contain embedded JPEG preview within first 3MB — can be extracted by scanning for JPEG SOI/EOI markers
+- 2026-10-28: Wi-Fi remote shutter = key events. `libInfraRemoteControlNet.so` RcInputShutter/RcInputStartBulbShooting/RcInputStopBulbShooting only call `InfraInputUtil::SendEvtToInput` with logical keys 0x0d (S1) / 0x0e (S2); bulb = hold S2.
+- 2026-10-28: Key tables are Backup property 0x7A0001 (`BIN!` blocks + `KEY!` records). Block 0x1a maps remote keys to 0x1A0000xx, so S1=0x1A00000D, S2=0x1A00000E. BLE remote uses source 0x1c.
+- 2026-10-28: InfraInput (libObj.so) has a factory test hook on sync OSAL queue 0x007A018C ("Usage: sndcmd.elf --sync 0x007A018C cmd [params]"). cmd 2 = send key event {key_code, sub_key_code, status, ex_info} to 0x007A0020. cmd 1 = input recorder/playback (ILOG).
+- 2026-10-28: `sndcmd.elf` args are `size:value` with size b/w/d; `testcmd.elf` takes bare 4-byte numbers.
+- 2026-10-28: `/usr/bin/orb-server` is the Sony Camera Remote API (ScalarWebAPI) server on port 10000 (`/sony/camera`), started by libInfraWebApi via WebApiLauncher.sh; has actTakePicture, start/stopBulbShooting, startIntervalStillRec.
+- 2026-10-28: Camera BusyBox 1.13.4 ash has no `getopts` and no `printf`; `sleep` takes whole seconds only; `busybox date +%s` and `busybox usleep` work when called through `busybox`.
 
 ## Open Issues
 - Backup.bin format not fully decoded — need to search for telnet/ADB/debug enable flags
@@ -82,9 +94,12 @@
 - autoexec_hook.so boot persistence needs on-camera verification (was ld.so.preload actually tested and confirmed working at boot?)
 - None of the new binaries (ritual_daemon, ritual_menu, arw_develop, etc.) have been confirmed running on camera yet — they're cross-compiled but need on-camera testing
 - Android partitions (nflasha16/17, 240MB) still unexplored
+- 2026-10-29: `astro/intervalometer.sh` not yet run on camera (shutter.sh primitives are confirmed).
+- sony_ptpip / intervalometer.sh / star_trails from the local platform are not in the repo; the PTP/IP-on-localhost:15740 claim was never verified.
 
 ## Session Log
 - 2026-10-26: Thread "Launch homebrew apps from camera menu" - Researched GUI homebrew paths. Created handoff6400_v3.zip.
 - 2026-10-26: Thread "Dump a6400 storage for offline research" - Created dump guide, pushed to repo.
 - 2026-10-26: Thread "Review latest local homebrew progress" - Reviewed massive local build-out: full homebrew platform with LD_PRELOAD boot persistence, film lab daemon, terminal menu, mobile web UI, desktop wizard, SDK with 5 examples, 6 utility tools, full partition dumps, and comprehensive docs. Updated PROJECT_MEMORY.md.
+- 2026-10-28: Thread "Trigger shutter from scripts for astro" - Reverse-engineered shutter path (Wi-Fi remote S1/S2 key events + InfraInput test hook), built astro/ shutter, bulb and intervalometer scripts, tested under qemu with the camera's BusyBox.
 - 2026-10-28: Thread "Add focus stacking bracketing" - Derived focus step key codes from firmware key table. Built focus_bracket.sh + probe_focus.sh + research doc. PR #7. Recheck found and fixed wrong key codes (now 0x2F/0x30), key-hold repeat risk, settle timing and failure handling.
