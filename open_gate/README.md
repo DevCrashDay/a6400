@@ -67,6 +67,17 @@ Note that finding the table only tells us where the format list lives.
 The sensor drive modes for each format are separate, and a 3:2 mode would
 still have to be built from scratch.
 
+**v2 result:** no hits in the warm-boot regions, and no crash. The
+warm-boot image is most likely Linux's own snapshot, not the camera core.
+
+## Step 3: check reads, then try the camera core's own block
+
+`scan_core_image.sh` first reads one known-good page to prove `/dev/mem`
+reads return data. Then it reads the first page of the 14 MB reserved block
+at 0x80000000 (`memrsv=14M@0x80000000`), which is about the size of
+`av-cam.bin`. If that page is protected, the camera reboots, as with v1.
+Otherwise it scans the 14 MB. Output goes to `/tmp/open_gate_core.txt`.
+
 ## What the step 1 result decided
 
 - **No `/dev/mem` and no large shared region:** the camera image can't be
