@@ -1,37 +1,37 @@
-# How a script can step focus on the a6400 (firmware v2.00)
+# How a script can move focus on the a6400 (firmware v2.00)
 
 Goal: move the focus in small, repeatable steps from a shell script, for
-focus stacking. This uses the same InfraInput test hook and `sndcmd.elf`
-sender as the shutter trigger (PR #6, `SHUTTER_TRIGGER_RESEARCH.md`), with
-different virtual keys. Static analysis only; on-camera confirmation is
-still pending (run `probe_focus.sh`).
+focus stacking. Uses the same InfraInput test hook and `sndcmd.elf` sender
+as the shutter trigger (PR #6, `SHUTTER_TRIGGER_RESEARCH.md`).
 
 ## Result
 
-The Wi-Fi remote's key set (key source `0x1a`) has two step-focus keys:
-
-| Key | Code |
-|---|---|
-| `KEY_REMOTE_STEP_FOCUS_NEAR` | **`0x1A00002F`** |
-| `KEY_REMOTE_STEP_FOCUS_FAR` | **`0x1A000030`** |
-
-One step = press and release:
+Send the key **`FOCUS_DRIVE_NEAR_FAR` (`0x1A000025`)**, press then release,
+with a **signed step amount in the event's `ex_info` field**: negative =
+near, positive = far, 1 / 3 / 7 = small / medium / large. This is exactly
+what the camera's own USB PC remote does for PTP control `0xD2D1`
+(Near/Far), see below.
 
 ```
-sndcmd.elf --sync 0x007A018C d:2 d:0x1A000030 d:0 d:1 d:0   # FAR press
-sndcmd.elf --sync 0x007A018C d:2 d:0x1A000030 d:0 d:0 d:0   # FAR release
-sndcmd.elf --sync 0x007A018C d:2 d:0x1A00002F d:0 d:1 d:0   # NEAR press
-sndcmd.elf --sync 0x007A018C d:2 d:0x1A00002F d:0 d:0 d:0   # NEAR release
+# one large step far (+7)
+sndcmd.elf --sync 0x007A018C d:2 d:0x1A000025 d:0 d:1 d:7
+sndcmd.elf --sync 0x007A018C d:2 d:0x1A000025 d:0 d:0 d:7
+# one small step near (-1 as a 32-bit value)
+sndcmd.elf --sync 0x007A018C d:2 d:0x1A000025 d:0 d:1 d:0xFFFFFFFF
+sndcmd.elf --sync 0x007A018C d:2 d:0x1A000025 d:0 d:0 d:0xFFFFFFFF
 ```
 
-Focus mode must be MF, otherwise AF moves the lens back.
+Focus Mode must be MF. Implemented in `focus.sh`.
 
-**Correction (2026-10-28):** the first version of this PR used `0x1A000029`
-and `0x1A00002A`, found by counting the order of the key-name strings. That
-was wrong: the codes skip `0x1A..0x1F`. `0x1A000029` is AWB lock and
-`0x1A00002A` is HFR standby, which would have switched the camera into
-high frame rate mode. The codes above come from the firmware's own
-code-to-name table.
+### History
+
+- First attempt used `0x1A000029`/`0x1A00002A` from counting key-name
+  strings. Wrong: the codes jump from `0x19` to `0x20`; those are AWB lock
+  and HFR standby. Fixed before any camera test.
+- 2026-10-29 camera test (SEL18135, Focus Mode MF): the S1/S2 shutter keys
+  work (10 pictures taken), but `STEP_FOCUS_NEAR`/`FAR` (`0x1A00002F` /
+  `0x1A000030`, sent with `ex_info` 0) did nothing. That led to the PC
+  remote path below.
 
 ## Evidence
 
@@ -88,7 +88,28 @@ In the factory default backup `0110_backup/SYSASTRA-DSLR/DX2/CX62600_UC2.bin`
   (offsets `0x83620` and `0x83650`): `4b455921 1a000000 2f00001a 2f000000 ...`
   and the same with `30` for FAR.
 
-### 3. The camera has a step-focus action
+### 3. The USB PC remote focuses with FOCUS_DRIVE + ex_info
+
+`/usr/lib/libInfraRemote.so`:
+
+- `InfraRemoteUsb::CtrlCode2InputKey(ushort code, signed char value)`
+  (`0xb522`) maps PTP control codes to logical remote keys. `0xD2C1` -> `0x0d`
+  (S1), `0xD2C2` -> `0x0e` (S2), and **`0xD2D1` (Near/Far) -> `0x25`**
+  (`FOCUS_DRIVE_NEAR_FAR`). STEP_FOCUS (`0x2f`/`0x30`) is not used here.
+- `InfraRemoteUsb::actionControlDevice` (`0xb890`) reads the control value
+  with `ParamStd_Template<short>::GetValue()`, then for key `0x25`
+  (`0xbb96`) calls `SendEvtToInput(0x25, 1, 0, value)` and
+  `SendEvtToInput(0x25, 0, 0, value)`: press and release back to back, the
+  signed value passed through.
+- `InfraRemoteBase::SendEvtToInput(key, status, sub, ex_info)` (`0x98d0`)
+  maps the logical key through key config `0x1a`, fills
+  `{key_code, sub_key_code, status, ex_info}` and posts it to `0x007A0020`,
+  the same message the test hook's command 2 builds.
+
+The sign convention (negative = near) follows Sony's published PTP/Remote
+SDK convention; `probe_focus.sh` checks it on the camera.
+
+### 4. The camera also has a separate step-focus action
 
 `libObj.so` strings: `ActionExeStepFocus`, `MSGID_SYNC_STEP_FOCUS_CMD`,
 `PARAMID_STEP_FOCUS_DIR`, `PARAMID_DATA_STEP_FOCUS_DIRECTION`,
@@ -98,17 +119,17 @@ action.
 
 ## Not used
 
-- `FOCUS_DRIVE_NEAR_FAR` (`0x1A000025`): continuous drive, its direction and
-  speed probably travel in the key's extra data. Unclear format, so the
-  step keys are used instead.
+- `STEP_FOCUS_NEAR` / `STEP_FOCUS_FAR` (`0x1A00002F` / `0x1A000030`): exist
+  in the key config but did nothing on the camera with `ex_info` 0. The
+  action they lead to (`ModelCamera` action 124 -> `ActionExeStepFocus`,
+  `libObj.so` `0x4b5930`) takes a direction parameter from the UI model
+  layer; how the key reaches it was not traced.
 - Camera Remote API (`orb-server` :10000): `libInfraWebApi.so` only shows
   focus *mode* and touch-AF calls, no focus position call, and it needs
   Ctrl w/ Smartphone plus an HTTP client.
 
 ## Open questions (need the camera)
 
-1. Does a STEP_FOCUS press move the lens in MF? (`probe_focus.sh`)
-2. Are source-`0x1a` keys ignored with no remote connected? (Same question
-   as S1/S2.)
-3. How big is one step? Probably lens dependent, so `-s` sets steps per frame.
-4. Does a held key repeat? The scripts press and release at once to avoid it.
+1. Does FOCUS_DRIVE with a non-zero `ex_info` move the lens? (`probe_focus.sh`)
+2. Is the sign right (negative = near)?
+3. How far does one small step move the SEL18135, so how many per frame?
