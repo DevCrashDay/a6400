@@ -1,119 +1,171 @@
 # a6400 Homebrew Platform
 
-Homebrew research and tools for the **Sony ILCE-6400 (a6400)**, firmware v2.00.
+**Unlock your Sony a6400's hidden potential.**
 
-This project documents what is and isn't possible on the a6400 through its service shell, including a working boot-persistence hook, diagnostic scripts, and in-camera application framework.
+This project turns the Sony a6400 mirrorless camera into a programmable platform — adding features Sony never shipped, like unlimited video recording, hands-free astrophotography, automated focus stacking, and in-camera film emulation. Everything runs on the camera itself with no permanent modifications and a one-file killswitch to undo it all.
 
-> **Status:** Boot persistence is **confirmed working** as of 2026-10-27. The LD_PRELOAD hook survives a genuine cold power-cycle and launches the full homebrew stack automatically.
-
----
-
-## Table of Contents
-
-- [What's Confirmed Working](#whats-confirmed-working)
-- [What Isn't Possible](#what-isnt-possible)
-- [Hardware Overview](#hardware-overview)
-- [Getting Started](#getting-started)
-- [Repository Contents](#repository-contents)
-- [Boot Persistence (LD_PRELOAD Hook)](#boot-persistence-ldso_preload-hook)
-- [The Ritual — In-Camera Film Lab](#the-ritual--in-camera-film-lab)
-- [Diagnostic Scripts](#diagnostic-scripts)
-- [Known Limitations & Quirks](#known-limitations--quirks)
-- [Research & Further Reading](#research--further-reading)
-- [Safety & Recovery](#safety--recovery)
-- [License](#license)
+> **Project status (October 2026):** Boot persistence is confirmed working on firmware v2.00. The camera runs homebrew scripts automatically on every power-on. Shutter control, focus bracketing, and recording limit removal are all verified on real hardware.
 
 ---
 
-## What's Confirmed Working
+## What Can It Do?
 
-These have been tested and verified on a real a6400 running firmware v2.00:
+### Remove the 30-Minute Video Recording Limit
 
-| Capability | Status | Notes |
-|---|---|---|
-| Service shell access | **Verified** | Root shell via [Sony-PMCA-RE](https://github.com/ma1co/Sony-PMCA-RE) `serviceshell` |
-| Native ARM code execution | **Verified** | Static ARMv7 ELFs run from `/tmp` |
-| Boot persistence (LD_PRELOAD) | **Verified** | Hook fires on cold power-cycle, launches full stack |
-| Telnet daemon (port 2323) | **Verified** | Opt-in via `/mnt/enable_telnet` flag file on SD card |
-| HTTP server (port 8080) | **Verified** | BusyBox httpd serving web UI over camera Wi-Fi |
-| In-camera film processing | **Verified** | `ritual_daemon` auto-develops JPEGs with film emulations |
-| SD card mount from userspace | **Verified** | `mount -t vfat /dev/mmca1 /mnt` (FAT32 only) |
-| Writable `/etc` and `/tmp` | **Verified** | Both are persistent vfat on nflasha10 |
-| PTP/IP camera control | **Verified** | localhost:15740 when "Ctrl w/ Smartphone" is enabled |
+The a6400 artificially caps video clips at ~30 minutes (an old EU import duty rule). This project removes that limit, letting the camera record continuously for up to **13 hours** — limited only by your SD card and battery.
 
-## What Isn't Possible
+- Three-byte settings change using Sony's own built-in tool
+- Takes effect immediately, no reboot needed
+- Fully reversible with one command or a factory reset
+- Same method used safely by [OpenMemories-Tweak](https://github.com/ma1co/OpenMemories-Tweak) on thousands of Sony cameras since 2016
 
-These are **confirmed dead ends** — don't waste time on them:
+### Astrophotography: Bulb Exposures & Intervalometer
 
-| Limitation | Reason |
+Take ultra-long exposures and automated shooting sequences with no external remote or phone needed:
+
+- **Bulb exposures of any length** — 2 minutes, 10 minutes, an hour — by script
+- **Intervalometer** for star trails, time-lapses, and stacking
+- Runs in the background so you can walk away from the camera
+- Scheduling is clock-based, so timing doesn't drift over long runs
+
+```sh
+# Single 4-minute exposure
+/tmp/shutter.sh bulb 240
+
+# 30 frames of 2 minutes each for deep-sky stacking
+/tmp/intervalometer.sh -b 120 -n 30 -i 125 --bg
+
+# Star trails until you stop it
+/tmp/intervalometer.sh -n 0 -i 22 --bg
+```
+
+### Focus Stacking / Bracketing
+
+Automatically shoot a series of frames while stepping the focus between each shot — for macro, landscape, and product photography. Stack the results in Helicon Focus, Zerene Stacker, or Photoshop.
+
+- **Confirmed working** on camera (2026-10-29, SEL18135 lens, 10-frame bracket)
+- Adjustable step size (small/medium/large), direction (near/far), and frame count
+- No phone, Wi-Fi, or tethering cable required
+
+```sh
+# 20 frames, small focus steps toward far
+/tmp/focus_bracket.sh -n 20 -d far
+
+# Larger steps for landscape depth
+/tmp/focus_bracket.sh -n 10 -z large -d far
+```
+
+### In-Camera Film Emulation ("The Ritual")
+
+An always-on film developing engine that watches for new photos and automatically creates film-emulated versions on your SD card:
+
+| Film Stock | Look |
 |---|---|
-| **PlayMemories Camera Apps** | Sony removed the PMCA platform from all post-2018 cameras. No "Application List" menu exists on the a6400. `pmca-console install` will not work. |
-| **OpenMemories-Tweak** | Requires PMCA app install, which is not supported. |
-| **Direct menu/UI modification** | `/usr` is read-only ext2. The `.uxc` menu files are binary, with no known repack tools. |
-| **Framebuffer access** | No `/dev/fb0`. Display is driven by the DMP SUGILITE GPU via `/dev/dmpgles2` and Guiengine_161H. |
-| **Custom firmware flashing** | CXD90045 firmware is AES-encrypted with per-model keys (not publicly known). Three-level integrity checks. No repack tooling exists. |
-| **exFAT SD cards** | The kernel (3.0.27) has no exFAT support. SD cards must be FAT32. |
-| **Real-time clock** | No RTC battery. Clock resets to `1970-01-01 00:00:00` on every power-off. |
-| **Large file transfer via PMCA** | `pmca-console pull` truncates every file by ~32 KB. Workaround: split with `dd` into overlapping chunks and reassemble on PC. |
+| **Portra 400** | Warm skin tones, gentle contrast, fine grain |
+| **CineStill 800T** | Tungsten-balanced, halation glow, cinematic |
+| **Fuji Provia 100F** | Vivid color, high saturation, fine detail |
+| **Kodak Gold 200** | Classic warm consumer color, visible grain |
+| **Tri-X 400** | Classic black & white, strong grain, rich tones |
+
+Developed images appear in `/RITUAL/` on your SD card. Configure film stock, grain, and halation via `RITUAL.ini`.
+
+### Boot Persistence
+
+All of the above can start **automatically when you turn on the camera**. No computer needed after the one-time setup. A file on your SD card disables everything instantly if needed.
 
 ---
 
-## Hardware Overview
+## What's Verified vs. What Isn't
 
-| Component | Detail |
+Transparency matters. Here's exactly what has and hasn't been tested on real hardware:
+
+### Confirmed Working (tested on a6400 fw v2.00)
+
+- Service shell access via [Sony-PMCA-RE](https://github.com/ma1co/Sony-PMCA-RE)
+- Native ARM code execution on camera
+- Boot persistence — LD_PRELOAD hook survives cold power-cycle (verified 2026-10-27)
+- Script-driven shutter: single shot, half-press, and 45-second bulb (verified 2026-10-29)
+- Focus stepping and 10-frame focus bracket (verified 2026-10-29, SEL18135)
+- 30-minute recording limit removal via Backup.bin properties
+- Telnet daemon (port 2323, opt-in) and HTTP server (port 8080) at boot
+- Film emulation daemon startup at boot
+
+### Not Yet Tested on Camera
+
+- Intervalometer multi-frame sequences (works in dry-run and emulation)
+- Wi-Fi photo offload
+- Focus bracket with lenses other than SEL18135
+- Web darkroom UI over camera Wi-Fi
+
+### Not Possible (confirmed dead ends)
+
+| Limitation | Why |
 |---|---|
-| **Model** | Sony ILCE-6400 |
-| **SoC** | CXD90045 ("Astra"), BIONZ X |
-| **CPU** | 4x ARM Cortex-A5 rev 1, ~351 BogoMIPS each |
-| **RAM** | ~1.25 GB physical (400-600 MB free during shooting) |
-| **Kernel** | Linux 3.0.27_nl-rt106+ (SMP PREEMPT RT, built 2019-05-27) |
-| **Shell** | BusyBox v1.13.4 (2017-04-15), ash |
-| **glibc** | 2.11.2 |
-| **NAND** | Multiple partitions on internal flash, ~1.2 GB total |
-
-### Partition Map
-
-| Partition | Mount | Type | Size | Writable | Purpose |
-|---|---|---|---|---|---|
-| nflasha2 | `/setting` | vfat | 20 MB | Yes | Camera settings, Backup.bin |
-| nflasha3 | `/system` | vfat | 48 MB | Yes | System data |
-| nflasha5 | `/wbi` | wbi | 60 MB | No | Warm Boot Image |
-| nflasha6 | (none) | vfat | 16 MB | No | Jiritsu subsystem |
-| nflasha7 | `/` | ext2 | 8 MB | **No** | Root filesystem |
-| nflasha10 | `/tmp` + `/etc` | vfat | 12 MB | **Yes** | Work partition — persistent across reboots |
-| nflasha11 | `/log` | vfat | 500 MB | Yes | Log storage |
-| nflasha12 | `/cert` | vfat | 40 MB | Yes | Network certificates |
-| nflasha15 | `/usr` | ext2 | 300 MB | **No** | Applications, libraries, UI resources |
-| nflasha16 | `/android/system` | ext2 | 140 MB | No | Android (vestigial, unused) |
-| nflasha17 | `/android/data` | vfat | 100 MB | Yes | Android data (vestigial) |
-| nflasha18 | `/lens` | vfat | 20 MB | Yes | Lens calibration |
-
-**Critical detail:** `/tmp` and `/etc` are the **same persistent vfat partition** (nflasha10). Nothing on this camera is tmpfs. Files in `/tmp` and `/etc` survive reboots. This is what makes the LD_PRELOAD hook persistent — but it also means stale lock files and logs persist.
+| **PlayMemories Camera Apps** | Sony removed the app platform from all post-2018 cameras. There is no "Application List" menu on the a6400 and no way to install apps. |
+| **On-screen GUI / menu modifications** | The display uses a proprietary DMP GPU (no `/dev/fb0`). Menu files are binary `.uxc` on a read-only partition with no repack tools. |
+| **Custom firmware** | Firmware is AES-encrypted with unknown per-model keys and has three layers of integrity checks. No one has cracked CXD90045 firmware. |
+| **exFAT SD cards** | The kernel (Linux 3.0.27, from 2019) doesn't support exFAT. Use FAT32. |
+| **Real-time clock** | No RTC battery. The clock resets to January 1, 1970 every time the camera powers off. |
 
 ---
 
 ## Getting Started
 
-### Prerequisites
+### What You Need
 
-- Sony a6400 with firmware **v2.00**
+- Sony a6400, firmware v2.00
 - USB cable (USB-A to micro-USB)
-- Windows PC (for PMCA service shell)
-- [Sony-PMCA-RE](https://github.com/ma1co/Sony-PMCA-RE) — download `pmca-console-v0.18-win.exe`
+- Windows PC
+- [pmca-console](https://github.com/ma1co/Sony-PMCA-RE) (download `pmca-console-v0.18-win.exe`)
 - SD card formatted as **FAT32** (not exFAT)
 
-### Entering the Service Shell
+### Step 1: Enter the Service Shell
 
-1. Set camera USB mode: **Menu → Setup → USB Connection → Mass Storage**
+1. On the camera: **Menu → Setup → USB Connection → Mass Storage**
 2. Connect camera to PC via USB
-3. Run:
+3. On PC, run:
    ```
    pmca-console-v0.18-win.exe serviceshell
    > shell
    ```
-4. You now have a root shell (BusyBox ash)
+4. You now have a root shell on the camera
 
-> **Important:** The service shell runs as a single continuous session. If you disconnect or the tool crashes, the camera drops off USB and requires a full power-cycle to reconnect. Keep ~3 second delays between commands to avoid overwhelming the shell.
+> **Heads up:** The service shell is a single continuous session. If the connection drops, you'll need to power-cycle the camera to reconnect. Keep a ~3 second pause between commands.
+
+### Step 2: Pick Your Features
+
+**Remove the 30-minute recording limit** (quickest win):
+```sh
+/usr/bin/bk.elf w 003c0373 0D
+/usr/bin/bk.elf w 003c0374 01
+/usr/bin/bk.elf w 003c0375 00
+/usr/bin/bk.elf s
+```
+Done. Takes effect on the next recording. Undo with `--restore` (see [tools/README_rec_unlimit.md](tools/README_rec_unlimit.md)).
+
+**Install the boot hook** (for all other features):
+```sh
+# Copy files from SD card to camera
+cp /mnt/autoexec_hook.so /tmp/autoexec_hook.so
+cp /mnt/autoexec.sh /tmp/autoexec.sh
+chmod 755 /tmp/autoexec_hook.so /tmp/autoexec.sh
+
+# Enable the hook
+echo '/tmp/autoexec_hook.so' > /etc/ld.so.preload
+```
+After a power-cycle, the camera will automatically mount the SD card and start services.
+
+**Test the shutter trigger** (no boot hook needed):
+```sh
+# Push scripts from PMCA prompt (before typing 'shell')
+push astro\shutter.sh /tmp/shutter.sh
+push astro\probe_shutter.sh /tmp/probe_shutter.sh
+
+# In the shell
+chmod 755 /tmp/shutter.sh /tmp/probe_shutter.sh
+/tmp/probe_shutter.sh          # Takes one test photo
+/tmp/shutter.sh bulb 10        # 10-second bulb (set dial to BULB first)
+```
 
 ---
 
@@ -121,256 +173,136 @@ These are **confirmed dead ends** — don't waste time on them:
 
 ```
 a6400/
-├── README.md                    # This file
-├── PROJECT_MEMORY.md            # Running project log
+├── README.md                       # This file
 ├── hook/
-│   ├── autoexec_hook.so         # The LD_PRELOAD boot hook (patched libAK8975.so)
-│   ├── autoexec.sh              # Boot script launched by the hook
-│   ├── build_autoexec_hook.py   # Python script to rebuild autoexec_hook.so
-│   └── libAK8975.so             # Original (unpatched) library for reference
-├── check.sh                     # Full diagnostic script — tests hook, clears state, fires hook
-├── verify-after-boot.sh         # Post-power-cycle verification script
-├── a6400_storage_dump_guide.md  # Guide to dumping NAND partitions
-└── research/
-    ├── README.md                # Detailed homebrew research (paths, architecture, GUI analysis)
-    ├── SYSTEM_INFO.md           # Hardware and software details from live camera
-    └── NEXT_STEPS_COMMANDS.md   # Service shell command reference
+│   ├── autoexec_hook.so            # Boot persistence hook (patched .so with ARM constructor)
+│   ├── autoexec.sh                 # Boot script — mounts SD, starts services
+│   ├── build_autoexec_hook.py      # Rebuild the hook from source (needs Keystone Engine)
+│   └── libAK8975.so               # Original unpatched library for reference
+├── tools/
+│   ├── rec_unlimit.sh              # Remove / restore the 30-min recording limit
+│   └── README_rec_unlimit.md       # Full documentation for the recording limit tool
+├── astro/
+│   ├── shutter.sh                  # Script-driven shutter: single shot, bulb, half-press
+│   ├── intervalometer.sh           # Automated interval shooting for astro / timelapse
+│   ├── probe_shutter.sh            # First-run test script
+│   └── README.md                   # Astro tools documentation
+├── focus_bracket/
+│   ├── focus_bracket.sh            # Automated focus stacking bracket
+│   ├── focus.sh                    # Focus move functions (sourced by other scripts)
+│   ├── shutter.sh                  # Shutter functions (shared with astro/)
+│   ├── probe_focus.sh              # Focus move test (no pictures taken)
+│   ├── README.md                   # Focus bracket documentation
+│   └── FOCUS_STEP_RESEARCH.md      # How the focus key codes were reverse-engineered
+├── check.sh                        # Full diagnostic — validates hook, clears state, tests
+├── verify-after-boot.sh            # Confirms hook fired after a real power-cycle
+├── a6400_storage_dump_guide.md     # Guide to dumping NAND partitions for research
+├── research/
+│   ├── README.md                   # Detailed feasibility analysis and architecture notes
+│   ├── SYSTEM_INFO.md              # Hardware specs, partition table, key binaries
+│   └── NEXT_STEPS_COMMANDS.md      # Service shell command reference
+└── PROJECT_MEMORY.md               # Running project log
 ```
 
 ---
 
-## Boot Persistence (LD_PRELOAD Hook)
+## How It Works (Technical Details)
 
-The hook makes homebrew code run automatically every time the camera powers on, without entering the service shell.
+### The Boot Hook
 
-### How It Works
+The a6400 runs Linux 3.0.27 on a quad-core ARM Cortex-A5 SoC (CXD90045). The standard Linux dynamic linker (`ld-2.11.2.so`) checks `/etc/ld.so.preload` on every process start and loads any shared libraries listed there.
 
-1. **`/etc/ld.so.preload`** contains the path `/tmp/autoexec_hook.so`
-2. The Linux dynamic linker (`ld-2.11.2.so`) loads `autoexec_hook.so` into every process at startup
-3. `autoexec_hook.so` is a patched copy of `libAK8975.so` (the AKM compass driver — dead code on the a6400, which has no magnetometer). A `DT_INIT` constructor is injected at offset 0x988.
-4. The constructor:
-   - Checks for killswitch files (`/tmp/disable_hook`, `/mnt/disable_hook`, `/mnt/disable.txt`)
-   - Acquires an atomic lock via `O_EXCL` on `/tmp/autoexec.lock`
-   - Double-forks (to not block the host process)
-   - `execve`s `/bin/sh /tmp/autoexec.sh`
-5. **`autoexec.sh`** then:
-   - Clears the lock on exit via `trap` (critical — `/tmp` is persistent flash, a leftover lock would prevent the next boot)
-   - Mounts the SD card
-   - Checks the killswitch again (SD card isn't mounted at early boot, so the hook can't check it)
-   - Copies binaries from SD to `/tmp` and starts services (telnet, httpd, ritual_daemon, watchdog)
+We place a patched copy of `libAK8975.so` (an unused compass driver — the a6400 has no magnetometer) in `/tmp/autoexec_hook.so`. The patch adds a `DT_INIT` constructor that:
 
-### Installing the Hook
+1. Checks for killswitch files
+2. Grabs an atomic lock (`O_EXCL` on `/tmp/autoexec.lock`)
+3. Double-forks so it doesn't block the host process
+4. Runs `/tmp/autoexec.sh`, which mounts the SD card and starts everything
 
-From the service shell:
+Since `/tmp` and `/etc` are on the same persistent flash partition (nflasha10), the hook and its configuration survive reboots. The `autoexec.sh` script clears the lock file on exit (`trap`) to prevent boot-lockout.
+
+### Shutter & Focus Control
+
+Sony's camera firmware has an internal message queue (`0x007A018C`) that accepts virtual key events — the same mechanism the Wi-Fi remote control app uses. The on-camera tool `sndcmd.elf` can send messages to this queue:
 
 ```sh
-# 1. Copy hook files to camera (from SD card at /mnt)
-cp /mnt/autoexec_hook.so /tmp/autoexec_hook.so
-cp /mnt/autoexec.sh /tmp/autoexec.sh
-chmod 755 /tmp/autoexec_hook.so /tmp/autoexec.sh
-
-# 2. Install the preload entry
-echo '/tmp/autoexec_hook.so' > /etc/ld.so.preload
-
-# 3. Verify
-cat /etc/ld.so.preload
+# Press the shutter button (S2 = full press)
+sndcmd.elf --sync 0x007A018C d:2 d:0x1A00000E d:0 d:1 d:0   # press
+sndcmd.elf --sync 0x007A018C d:2 d:0x1A00000E d:0 d:0 d:0   # release
 ```
 
-### Killswitch (Emergency Disable)
+Focus uses key `0x1A000025` (the same Near/Far command the USB PC remote sends), with a signed step size: positive = far, negative = near. Sony uses sizes 1, 3, and 7.
 
-If anything goes wrong, create any of these files on the SD card to disable the hook on next boot:
+### Recording Limit
 
-- `/mnt/disable_hook`
-- `/mnt/disable.txt`
-- `/tmp/disable_hook` (via service shell)
-
-The hook will remove `/etc/ld.so.preload` and exit cleanly. The camera returns to stock behavior.
-
-### Rebuilding the Hook
-
-Requires Python 3 and [Keystone Engine](https://www.keystone-engine.org/):
-
-```sh
-pip install keystone-engine
-python build_autoexec_hook.py
-```
-
-This patches `libAK8975.so` to produce `autoexec_hook.so` by:
-- Writing ARM assembly at offset 0x988 (the `AKSC_InitDecomp8975` export)
-- Inserting a `DT_INIT` entry in the ELF dynamic section pointing to 0x988
+The limit is stored in three single-byte properties in the camera's settings database (Backup.bin). The built-in `bk.elf` tool reads and writes these properties. The firmware checks the limit at recording start, converting it to 90 KHz timer ticks. The "unrestricted" value (13h 01m) comes from Sony's own camcorder firmware and stays safely below the 32-bit timer overflow at 13h 15m 21s.
 
 ---
 
-## The Ritual — In-Camera Film Lab
+## Hardware Overview
 
-"The Ritual" is an in-camera film developing engine that watches for new photos and automatically processes them with analog film stock emulations.
-
-### Film Stocks
-
-| Stock | Character |
+| Component | Detail |
 |---|---|
-| **Portra 400** | Warm skin tones, gentle contrast, fine grain |
-| **CineStill 800T** | Tungsten-balanced, halation glow, cinematic |
-| **Fuji Provia 100F** | Vivid color, high saturation, fine detail |
-| **Kodak Gold 200** | Classic warm consumer color, visible grain |
-| **Tri-X 400** | Classic B&W, strong grain, rich tonal range |
+| **Camera** | Sony ILCE-6400, firmware v2.00 |
+| **SoC** | CXD90045 ("Astra"), BIONZ X image processor |
+| **CPU** | 4x ARM Cortex-A5 rev 1, ~351 BogoMIPS each |
+| **RAM** | ~1.25 GB (400–600 MB free while shooting) |
+| **OS** | Linux 3.0.27 (SMP PREEMPT RT), BusyBox 1.13.4, glibc 2.11.2 |
+| **Storage** | ~1.2 GB internal NAND flash across 20+ partitions |
 
-### How It Works
-
-- `ritual_daemon` monitors `DCIM/` on the SD card for new JPEG (and ARW) files
-- Applies Hurter-Driffield S-curve tone mapping per film stock
-- Adds density-dependent film grain simulation
-- Outputs developed images to `/mnt/RITUAL/` on the SD card
-- Configuration via `/mnt/RITUAL.ini` (stock, grain level, halation on/off)
-
-### Additional Camera Tools
-
-| Tool | Purpose |
-|---|---|
-| `ritual_menu` | Interactive terminal UI for cycling film stocks and settings |
-| `arw_develop` | Full Sony ARW raw developer (white balance, demosaicing) |
-| `sony_ptpip` | PTP/IP camera control (shutter, focus, EV, bulb) via localhost:15740 |
-| `star_trails` | Lighten-blend compositor for star trail photography |
-| `timelapse_mux` | MJPEG AVI muxer for timelapse sequences |
-| `intervalometer.sh` | Interval timer shooting script |
-| `focus_bracket.sh` | Focus bracketing automation |
-| `aeb_hdr.sh` | Auto exposure bracketing for HDR |
-| `wifi_offload.sh` | FTP upload of processed photos |
-| `watchdog.sh` | Runtime supervisor (thermal, battery, killswitch monitoring) |
-| `probe.sh` | Hardware and access diagnostic probe |
-
----
-
-## Diagnostic Scripts
-
-### `check.sh` — Full Diagnostic
-
-Run from the service shell to test the entire hook chain:
-
-```sh
-chmod 755 /mnt/check.sh
-/bin/sh /mnt/check.sh
-```
-
-This script:
-1. Verifies mount points and persistent flash
-2. Checks hook file presence and integrity (ELF signature, file size)
-3. Reads `/etc/ld.so.preload`
-4. Clears stale state (old locks, PIDs, daemons from prior sessions)
-5. Fires the hook via `LD_PRELOAD=/tmp/autoexec_hook.so /bin/true`
-6. Checks whether autoexec.sh launched and produced logs
-
-### `verify-after-boot.sh` — Boot Persistence Verifier
-
-Run **after a real camera power-cycle** to confirm the hook fired on its own:
-
-```sh
-# BEFORE power-cycling, clear old state:
-rm -f /tmp/autoexec.log /tmp/autoexec.lock /tmp/autoexec.pid /tmp/ritual.log
-
-# Power OFF camera completely, then power ON
-# Re-enter service shell, then run:
-/bin/sh /mnt/verify-after-boot.sh
-```
-
-**How to tell it really worked:** The a6400 has no RTC — a genuine cold boot resets the clock to `1970-01-01 00:00:00`. If `autoexec.log` is timestamped near `00:00:0X` (seconds of uptime), the hook fired at boot. If the timestamp continues a prior session's clock, the camera didn't actually reboot.
-
----
-
-## Known Limitations & Quirks
-
-### BusyBox 1.13.4
-
-The on-camera shell is extremely minimal. **Missing applets** — do not use these in scripts:
-
-`head`, `od`, `hexdump`, `killall`, `nice`, `awk`, `wc`, `id`, `stat`
-
-**Also:** `cat` has no `-v` flag.
-
-**Available and tested:** `cat`, `dd`, `grep`, `ls`, `echo`, `sleep`, `rm`, `kill`, `pidof`, `chmod`, `mount`, `sh`, `mkdir`, `cp`, `mv`, `df`, `ps`, `tr`, `sed`, `test`/`[`
-
-### Line Endings
-
-All scripts pushed to the camera **must use LF (Unix) line endings**. CRLF will break the shebang (`not foundsh:` error), corrupt `sleep` arguments, and cause `bad fd number` on redirects.
-
-### No Volatile Filesystem
-
-There is **no tmpfs** anywhere. `/tmp` is persistent flash (nflasha10). This means:
-- Stale daemons, logs, and lock files survive between service shell sessions
-- Diagnostic scripts should kill old processes and remove old files before testing
-- The `autoexec.sh` lock trap (`trap 'rm -f /tmp/autoexec.lock' EXIT`) is critical to prevent boot-lockout
-
-### PMCA File Transfer Truncation
-
-`pmca-console pull` truncates files by ~32 KB. To transfer large files off the camera, split them using `dd`:
-
-```sh
-dd if=/dev/nflashaX of=/mnt/chunk_00 bs=896k count=1 skip=0
-dd if=/dev/nflashaX of=/mnt/chunk_01 bs=896k count=1 skip=1
-# ... reassemble on PC
-```
-
-### Service Shell Session
-
-- One continuous session per USB connection — disconnecting requires a power-cycle
-- Add ~3 second delays between commands
-- The camera can become unresponsive if commands are sent too quickly
-
----
-
-## Research & Further Reading
-
-Detailed research notes are in the [`research/`](research/) directory:
-
-- **[research/README.md](research/README.md)** — Full homebrew feasibility analysis, GUI architecture, injection vectors, and ranked paths to camera-GUI homebrew
-- **[research/SYSTEM_INFO.md](research/SYSTEM_INFO.md)** — Complete hardware specs, partition table, key libraries and binaries
-- **[a6400_storage_dump_guide.md](a6400_storage_dump_guide.md)** — Step-by-step NAND partition dumping guide
-
-### Key External Resources
-
-- [Sony-PMCA-RE](https://github.com/ma1co/Sony-PMCA-RE) — Service shell tool (ma1co)
-- [OpenMemories-Tweak](https://github.com/ma1co/OpenMemories-Tweak) — Settings modifier (PMCA cameras only)
-- [Sony-ZVE-10-Camtool](https://github.com/nolan2628/Sony-ZVE-10-Camtool) — Jiritsu/dlopen on ZV-E10
-- [CXD90045-FPSU](https://github.com/Lost-week-1025/CXD90045-FPSU) — CXD90045 firmware structure
-
-### Injection Vectors (for researchers)
-
-| Vector | Status | Notes |
-|---|---|---|
-| `/etc/ld.so.preload` | **Working** | Current boot persistence mechanism |
-| `/setting/env.txt` with `LD_PRELOAD` | Untested | Init reads this file; env.txt not present by default |
-| Backup.bin settings flags | Untested | ~15,000 settings entries; may contain telnet/ADB enable flags |
-| libJiritsu.so dlopen | Untested | Present in `/usr/lib/`; used on ZV-E10 for injection |
-| Android partition repurposing | Speculative | nflasha16/17 are vestigial; boot process likely skips Android init |
+Key partitions: `/tmp` and `/etc` share a 12 MB writable flash partition (nflasha10) that persists across reboots. `/usr` (300 MB, apps and libraries) and `/` (8 MB, root filesystem) are read-only ext2. The full partition map is in [research/SYSTEM_INFO.md](research/SYSTEM_INFO.md).
 
 ---
 
 ## Safety & Recovery
 
-This project follows a **zero NAND writes** policy for the read-only partitions. All homebrew runs from the writable `/tmp` and SD card.
+This project is designed to be safe and reversible:
 
-### If Something Goes Wrong
+- **No read-only partitions are modified.** Everything lives on writable flash (`/tmp`, `/etc`) and the SD card.
+- **No firmware is flashed.** The camera's firmware is untouched.
+- **No safety mechanisms are disabled.** Thermal shutdown, battery protection, and all camera safeguards remain active.
 
-1. **Killswitch:** Put a file named `disable_hook` or `disable.txt` on the SD card root. Next boot, the hook disables itself and removes `/etc/ld.so.preload`.
+### Emergency Killswitch
 
-2. **Service shell recovery:** Connect via USB in Mass Storage mode and run:
-   ```sh
-   rm -f /etc/ld.so.preload /tmp/autoexec_hook.so /tmp/autoexec.sh /tmp/autoexec.lock
-   ```
+If anything goes wrong, put a file named **`disable_hook`** on your SD card (any empty file will do). On the next boot, the hook disables itself, removes `/etc/ld.so.preload`, and the camera returns to stock behavior.
 
-3. **Hard recovery:** If the camera won't boot (extremely unlikely — the hook only adds a `DT_INIT` to a non-critical library), a [Sony firmware reinstall](https://www.sony.com/en/electronics/support/mirrorless-interchangeable-lens-cameras-e-mount-body/ilce-6400/downloads) will restore all stock partitions.
+### Full Uninstall
 
-### What This Project Does NOT Do
+From the service shell:
+```sh
+rm -f /etc/ld.so.preload /tmp/autoexec_hook.so /tmp/autoexec.sh /tmp/autoexec.lock
+```
 
-- Does not modify read-only partitions (`/`, `/usr`)
-- Does not flash custom firmware
-- Does not disable any camera safety mechanisms
-- Does not void warranty any more than using the documented service shell does
+### Nuclear Option
+
+A [Sony firmware reinstall](https://www.sony.com/en/electronics/support/mirrorless-interchangeable-lens-cameras-e-mount-body/ilce-6400/downloads) restores every partition to factory state. This is extremely unlikely to be needed — the hook only touches a non-critical library and writable partitions.
+
+---
+
+## Scripting Gotchas
+
+If you're writing your own scripts for the camera:
+
+- **LF line endings only.** CRLF breaks everything — the shebang, `sleep`, redirects. Use `dos2unix` or configure your editor.
+- **BusyBox 1.13.4 is ancient.** Missing: `head`, `od`, `hexdump`, `killall`, `nice`, `awk`, `wc`, `id`, `stat`, `getopts`, `printf`. Also `cat` has no `-v` flag. Stick to: `cat`, `dd`, `grep`, `ls`, `echo`, `sleep`, `rm`, `kill`, `pidof`, `chmod`, `mount`, `sh`, `mkdir`, `cp`, `mv`, `df`, `ps`, `tr`, `sed`, `test`/`[`.
+- **`/tmp` is not temporary.** It's persistent flash. Stale processes, logs, and lock files survive between sessions. Clean up before testing.
+- **`sleep` only takes integers.** No `sleep 0.5`.
+- **`sndcmd.elf` takes ~1 second per call.** Budget this into timing-sensitive scripts.
+- **PMCA `pull` truncates by ~32 KB.** To get large files off the camera, split them with `dd` and reassemble on PC.
+
+---
+
+## Community & Resources
+
+This project builds on the work of the Sony homebrew research community:
+
+- [Sony-PMCA-RE](https://github.com/ma1co/Sony-PMCA-RE) — The service shell tool that makes all of this possible (ma1co)
+- [OpenMemories-Tweak](https://github.com/ma1co/OpenMemories-Tweak) — Settings modifier for older Sony cameras
+- [Sony-ZVE-10-Camtool](https://github.com/nolan2628/Sony-ZVE-10-Camtool) — Jiritsu/dlopen injection on the ZV-E10
+- [CXD90045-FPSU](https://github.com/Lost-week-1025/CXD90045-FPSU) — CXD90045 firmware structure research
 
 ---
 
 ## License
 
-This project is for educational and personal homebrew research purposes. Sony, BIONZ, and related trademarks belong to Sony Corporation. This project is not affiliated with or endorsed by Sony.
-
-The hook mechanism builds on research from the [Sony-PMCA-RE](https://github.com/ma1co/Sony-PMCA-RE) community.
+This project is for educational and personal homebrew research. Sony, BIONZ, and related trademarks belong to Sony Corporation. This project is not affiliated with or endorsed by Sony.
