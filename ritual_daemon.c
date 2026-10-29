@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <string.h>
 #include <strings.h>
 #include <ctype.h>
@@ -29,17 +30,14 @@
 #define BLKFLSBUF _IO(0x12, 97)
 #endif
 
-#ifndef MNT_DETACH
-#define MNT_DETACH 2
-#endif
-
-// Paths — state/lock/log files live in /tmp so /mnt can stay UNMOUNTED while shooting!
+// Paths — state/lock/log files live in /tmp so they are always writable
 #define CONFIG_PATH_MNT   "/mnt/RITUAL.ini"
 #define CONFIG_PATH_TMP   "/tmp/RITUAL.ini"
 #define PROCESSED_LOG     "/tmp/ritual_processed.log"
 #define PID_FILE          "/tmp/ritual_daemon.pid"
 #define TRIGGER_FILE      "/tmp/ritual_develop_latest"
 #define STATUS_FILE       "/tmp/ritual_status.txt"
+#define LOG_FILE          "/tmp/ritual.log"
 #define LATEST_COPY_TMP   "/tmp/latest_ritual.jpg"
 #define RITUAL_DIR        "/mnt/RITUAL"
 #define DCIM_DIR          "/mnt/DCIM"
@@ -80,6 +78,24 @@ static inline uint8_t clamp_u8(int v) {
     return (uint8_t)(v < 0 ? 0 : (v > 255 ? 255 : v));
 }
 
+static void ritual_logf(const char *fmt_str, ...) {
+    char buf[512];
+    va_list ap;
+    va_start(ap, fmt_str);
+    vsnprintf(buf, sizeof(buf), fmt_str, ap);
+    va_end(ap);
+
+    printf("%s\n", buf);
+    fflush(stdout);
+
+    FILE *lf = fopen(LOG_FILE, "a");
+    if (lf) {
+        fprintf(lf, "%s\n", buf);
+        fflush(lf);
+        fclose(lf);
+    }
+}
+
 static void write_status(const char *msg) {
     FILE *f = fopen(STATUS_FILE ".tmp", "w");
     if (f) {
@@ -87,8 +103,7 @@ static void write_status(const char *msg) {
         fclose(f);
         rename(STATUS_FILE ".tmp", STATUS_FILE);
     }
-    printf("[Ritual] %s\n", msg);
-    fflush(stdout);
+    ritual_logf("[Ritual] %s", msg);
 }
 
 static void init_curves(void) {
@@ -113,7 +128,8 @@ static void init_curves(void) {
     }
 }
 
-static void flush_mmca_buffers(void) {
+// Drop clean VFS caches and flush block buffers so new files written by im.elf are visible
+static void refresh_sd_cache(void) {
     sync();
     int fd = open("/proc/sys/vm/drop_caches", O_WRONLY);
     if (fd >= 0) {
@@ -127,27 +143,27 @@ static void flush_mmca_buffers(void) {
     }
 }
 
-// Unmount /mnt completely so Linux never holds stale FAT sectors while im.elf shoots photos
-static void unmount_sd(void) {
-    sync();
-    if (umount("/mnt") != 0) {
-        if (errno == EBUSY) {
-            (void)umount2("/mnt", MNT_DETACH);
-        }
-    }
-    flush_mmca_buffers();
-}
+// Ensure /dev/mmca1 is mounted read-write with errors=continue (NEVER use MNT_DETACH!)
+static int ensure_sd_ready(void) {
+    refresh_sd_cache();
 
-// Freshly mount /dev/mmca1 on /mnt with errors=continue so Linux reads a 100% fresh FAT table
-static int mount_sd_fresh(void) {
-    unmount_sd();
+    struct stat st;
+    if (stat(DCIM_DIR, &st) == 0 && S_ISDIR(st.st_mode)) {
+        // Ensure it is rw (in case an earlier FAT error remounted it ro)
+        if (access(DCIM_DIR, W_OK) != 0) {
+            (void)mount("/dev/mmca1", "/mnt", "vfat", MS_REMOUNT | MS_SYNCHRONOUS | MS_DIRSYNC, "errors=continue");
+            (void)system("mount -o remount,rw /mnt 2>/dev/null");
+        }
+        return 1;
+    }
+
     mkdir("/mnt", 0777);
     if (mount("/dev/mmca1", "/mnt", "vfat", MS_SYNCHRONOUS | MS_DIRSYNC, "errors=continue") != 0) {
         if (mount("/dev/mmca1", "/mnt", "vfat", 0, NULL) != 0) {
             (void)system("mount -t vfat -o rw,sync,dirsync,errors=continue /dev/mmca1 /mnt 2>/dev/null || mount -t vfat /dev/mmca1 /mnt 2>/dev/null");
         }
     }
-    struct stat st;
+    refresh_sd_cache();
     return (stat(DCIM_DIR, &st) == 0 && S_ISDIR(st.st_mode)) ? 1 : 0;
 }
 
@@ -719,7 +735,6 @@ static void scan_shots_recursive(const char *dir_path, ShotEntry *shots, int *nu
                     strncpy(shots[idx].base_name, base, sizeof(shots[idx].base_name) - 1);
                     shots[idx].mtime = st.st_mtime;
                 } else {
-                    // Replace oldest entry if full
                     int oldest = 0;
                     for (int i = 1; i < MAX_SHOTS; i++) {
                         if (strcasecmp(shots[i].base_name, shots[oldest].base_name) < 0)
@@ -752,8 +767,8 @@ static int develop_shot(const ShotEntry *shot, const RitualConfig *cfg) {
     uint8_t *image_pixels = NULL;
     const char *used_src = NULL;
 
-    // Prefer .ARW embedded preview when available (it sits in the first 1MB of the file),
-    // with automatic fallback to .JPG (and vice-versa)
+    // Prefer .ARW embedded preview when available (sits in the first 1MB of the file),
+    // with automatic fallback to .JPG
     if (shot->arw_path[0] != '\0') {
         image_pixels = decode_photo_path(shot->arw_path, cfg->full_res, &w, &h);
         if (image_pixels) used_src = shot->arw_path;
@@ -770,15 +785,15 @@ static int develop_shot(const ShotEntry *shot, const RitualConfig *cfg) {
         return 0;
     }
 
-    printf("[Ritual] Decoded %s (%dx%d) -> applying %s (grain=%d, halation=%d)\n",
-           used_src, w, h, stock_name(cfg->stock), cfg->grain_level, cfg->halation);
-    fflush(stdout);
+    ritual_logf("[Ritual] Decoded %s (%dx%d) -> applying %s (grain=%d, halation=%d)",
+                used_src, w, h, stock_name(cfg->stock), cfg->grain_level, cfg->halation);
 
     apply_film_emulation(image_pixels, w, h, cfg);
 
-    // Always write to /tmp/latest_ritual.jpg first (on /tmp, never fails), then copy/move to /mnt/RITUAL/
+    // Always write to /tmp/latest_ritual.jpg first, then to /mnt/RITUAL/
     int ok_tmp = stbi_write_jpg(LATEST_COPY_TMP, w, h, 3, image_pixels, 92);
 
+    ensure_sd_ready();
     mkdir(RITUAL_DIR, 0777);
     char out_name[192], out_path[512];
     snprintf(out_name, sizeof(out_name), "%s_%s.JPG", shot->base_name, stock_suffix(cfg->stock));
@@ -795,7 +810,7 @@ static int develop_shot(const ShotEntry *shot, const RitualConfig *cfg) {
         write_status(msg);
         return 1;
     } else if (ok_tmp) {
-        snprintf(msg, sizeof(msg), "Saved to /tmp/latest_ritual.jpg (SD ro)");
+        snprintf(msg, sizeof(msg), "Saved /tmp/latest_ritual.jpg (SD ro)");
         write_status(msg);
         return 1;
     } else {
@@ -823,7 +838,7 @@ static int check_other_daemon_running(void) {
 int main(int argc, char **argv) {
     (void)nice(10);
 
-    // If invoked with `--latest`, if daemon is already running, signal it via TRIGGER_FILE and exit
+    // If invoked with `--latest`, signal the running daemon via TRIGGER_FILE if active
     if (argc > 1 && (strcmp(argv[1], "--latest") == 0 || strcmp(argv[1], "latest") == 0)) {
         if (check_other_daemon_running() > 0) {
             FILE *tf = fopen(TRIGGER_FILE, "w");
@@ -834,7 +849,7 @@ int main(int argc, char **argv) {
             return 0;
         }
         init_curves();
-        if (!mount_sd_fresh()) {
+        if (!ensure_sd_ready()) {
             write_status("No SD card (/mnt/DCIM)");
             return 1;
         }
@@ -855,15 +870,16 @@ int main(int argc, char **argv) {
             write_status("No photos found in /mnt/DCIM");
         }
         free(shots);
-        unmount_sd();
         return rc;
     }
 
-    // Single-instance daemon check
+    // Replace any older daemon instance cleanly
     int existing = check_other_daemon_running();
     if (existing > 0) {
-        printf("[Ritual] Daemon already running (PID %d), exiting duplicate.\n", existing);
-        return 0;
+        kill(existing, SIGTERM);
+        usleep(200000);
+        kill(existing, SIGKILL);
+        usleep(100000);
     }
 
     FILE *pf = fopen(PID_FILE, "w");
@@ -875,8 +891,15 @@ int main(int argc, char **argv) {
     init_curves();
     discover_sd_threads();
 
-    // Baseline existing photos on SD card at startup, then UNMOUNT /mnt so im.elf has exclusive SD access while shooting!
-    if (mount_sd_fresh()) {
+    // Baseline existing photos on SD card at startup
+    if (ensure_sd_ready()) {
+        // Remove the single corrupted DSC01546.JPG (i_pos 49392414) if present while keeping DSC01546.ARW
+        if (access("/mnt/DCIM/100MSDCF/DSC01546.ARW", F_OK) == 0 &&
+            access("/mnt/DCIM/100MSDCF/DSC01546.JPG", F_OK) == 0) {
+            unlink("/mnt/DCIM/100MSDCF/DSC01546.JPG");
+            sync();
+        }
+
         RitualConfig cfg;
         load_config(&cfg, 1);
         ShotEntry *shots = (ShotEntry *)calloc(MAX_SHOTS, sizeof(ShotEntry));
@@ -896,15 +919,13 @@ int main(int argc, char **argv) {
             }
         }
         if (baselined > 0) {
-            printf("[Ritual] Baselined %d pre-existing shots (latest: %s)\n",
-                   baselined, newest >= 0 ? shots[newest].base_name : "none");
-            fflush(stdout);
+            ritual_logf("[Ritual] Baselined %d pre-existing shots (latest: %s)",
+                        baselined, newest >= 0 ? shots[newest].base_name : "none");
         }
         free(shots);
-        unmount_sd();
     }
 
-    write_status("Ritual active (take a photo or press OK)");
+    write_status("Ritual v3 active (take a photo or press OK)");
 
     uint64_t last_io = get_sd_io_activity();
     int sd_activity_pending = 0;
@@ -929,19 +950,19 @@ int main(int argc, char **argv) {
             quiet_ticks++;
         }
 
-        // Wait until SD card has been completely quiet for 2.0 seconds (4 x 500ms) after write activity
-        if (manual_trigger || (sd_activity_pending && quiet_ticks >= 4)) {
+        // Wait until SD card has been completely quiet for 2.5 seconds (5 x 500ms) after write activity
+        if (manual_trigger || (sd_activity_pending && quiet_ticks >= 5)) {
             if (manual_trigger) {
                 unlink(TRIGGER_FILE);
             }
             sd_activity_pending = 0;
             quiet_ticks = 0;
 
-            if (mount_sd_fresh()) {
+            if (ensure_sd_ready()) {
                 RitualConfig cfg;
                 load_config(&cfg, 1);
 
-                // Sync /tmp/RITUAL.ini to /mnt/RITUAL.ini while mounted
+                // Sync /tmp/RITUAL.ini to /mnt/RITUAL.ini
                 FILE *ft = fopen(CONFIG_PATH_TMP, "r");
                 if (ft) {
                     char cbuf[512];
@@ -963,7 +984,6 @@ int main(int argc, char **argv) {
                 scan_shots_recursive(DCIM_DIR, shots, &num_shots);
 
                 if (manual_trigger) {
-                    // Develop the single newest photo on the card with current LUT
                     int newest = -1;
                     for (int i = 0; i < num_shots; i++) {
                         if (newest < 0 || strcasecmp(shots[i].base_name, shots[newest].base_name) > 0)
@@ -975,7 +995,6 @@ int main(int argc, char **argv) {
                         write_status("No photos found in /mnt/DCIM");
                     }
                 } else {
-                    // Develop all newly taken unprocessed shots
                     for (int i = 0; i < num_shots; i++) {
                         if (!is_already_processed(shots[i].base_name)) {
                             develop_shot(&shots[i], &cfg);
@@ -984,10 +1003,8 @@ int main(int argc, char **argv) {
                 }
 
                 free(shots);
-                unmount_sd();
             }
 
-            // Re-baseline SD I/O counter after our own mount/unmount completes
             usleep(200000);
             last_io = get_sd_io_activity();
         }

@@ -397,9 +397,10 @@ static void save_ritual_ini(struct menu_state *m)
 static void ensure_ritual_daemon(void)
 {
     const char *cmd =
-        "if ! pidof ritual_daemon >/dev/null 2>&1; then "
-        "  if [ -x /tmp/ritual_daemon ]; then /tmp/ritual_daemon >> /tmp/ritual.log 2>&1 & "
-        "  elif [ -x /mnt/ritual_daemon ]; then /mnt/ritual_daemon >> /tmp/ritual.log 2>&1 & "
+        "if [ ! -f /tmp/ritual_daemon.pid ] || ! pidof ritual_daemon >/dev/null 2>&1; then "
+        "  killall ritual_daemon 2>/dev/null; "
+        "  if [ -x /tmp/ritual_daemon ]; then /tmp/ritual_daemon >/dev/null 2>&1 & "
+        "  elif [ -x /mnt/ritual_daemon ]; then /mnt/ritual_daemon >/dev/null 2>&1 & "
         "  fi; "
         "fi";
     spawn_sh(cmd, 0, NULL);
