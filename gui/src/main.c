@@ -390,13 +390,13 @@ static void save_ritual_ini(struct menu_state *m)
                 GRAINS[m->grain_idx],
                 m->halation ? "ON" : "OFF");
     write_file(RITUAL_INI_TMP, buf, (size_t)n, 0);
-    write_file(RITUAL_INI, buf, (size_t)n, 0);
+    if (sys_access("/mnt/DCIM", 0) == 0)
+        write_file(RITUAL_INI, buf, (size_t)n, 0);
 }
 
 static void ensure_ritual_daemon(void)
 {
     const char *cmd =
-        "mount -t vfat /dev/mmca1 /mnt 2>/dev/null; "
         "if ! pidof ritual_daemon >/dev/null 2>&1; then "
         "  if [ -x /tmp/ritual_daemon ]; then /tmp/ritual_daemon >> /tmp/ritual.log 2>&1 & "
         "  elif [ -x /mnt/ritual_daemon ]; then /mnt/ritual_daemon >> /tmp/ritual.log 2>&1 & "
@@ -470,16 +470,10 @@ static void execute_row(struct menu_state *m, int *osd_visible)
     }
     case 4:
     case 5: {
-        const char *rd = resolve_script("/tmp/ritual_daemon", "/mnt/ritual_daemon", "/mnt/a6400hb/bin/ritual_daemon");
         save_ritual_ini(m);
         ensure_ritual_daemon();
-        if (sys_access(rd, 0) == 0) {
-            fmt(cmd, sizeof(cmd), "%s --latest >> /tmp/ritual.log 2>&1", rd);
-            spawn_sh(cmd, 0, NULL);
-            fmt(m->status, sizeof(m->status), "Applying %s (%s)...", STOCKS[m->stock_idx], GRAINS[m->grain_idx]);
-        } else {
-            fmt(m->status, sizeof(m->status), "Saved %s (%s)", STOCKS[m->stock_idx], GRAINS[m->grain_idx]);
-        }
+        write_file("/tmp/ritual_develop_latest", "1\n", 2, 0);
+        fmt(m->status, sizeof(m->status), "Applying %s (%s)...", STOCKS[m->stock_idx], GRAINS[m->grain_idx]);
         break;
     }
     case 6: { /* 30-Min Rec Limit */
