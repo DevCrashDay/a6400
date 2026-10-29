@@ -29,7 +29,37 @@ memory, changes no settings, and writes only `/tmp/open_gate_probe.txt`.
    smaller than that, but copy the shell output too if it looks short.)
 4. Share `open_gate_probe.txt`.
 
-## What the result decides
+## Probe result (2026-10-29, Ash's camera, fw 2.00)
+
+- `/dev/mem` exists (root, group 9) and the main camera process (pid 152)
+  maps it itself at many physical addresses (0x10xxxxxx, 0x20xxxxxx, and
+  0xF... registers). So camera-core memory is visible from Linux.
+- Linux only manages 112 MB. Most RAM is reserved for the camera core
+  (`memrsv` in `/proc/cmdline`: 0x09915000+167 MB, 0x14000000+704 MB,
+  0x80E00000+242 MB). Image buffers go through `/dev/stream` and `/dev/stream2`.
+- The warm-boot image (`wbimem=`) covers 0x10000000 (9.4 MB) and
+  0x20200000 (57 MB), likely where the camera image's code and data live.
+
+## Step 2: find the format table in memory
+
+`scan_format_table.sh` reads RAM through `/dev/mem` 1 MB at a time and
+lists each MB that contains `3840X2160_24P`. It is read-only and takes a few
+minutes. If the camera ever freezes, pull the battery; nothing is written.
+
+```
+push open_gate\scan_format_table.sh /tmp/scan_format_table.sh
+shell
+chmod +x /tmp/scan_format_table.sh
+/tmp/scan_format_table.sh
+exit
+pull /tmp/open_gate_scan.txt open_gate_scan.txt
+```
+
+Note that finding the table only tells us where the format list lives.
+The sensor drive modes for each format are separate, and a 3:2 mode would
+still have to be built from scratch.
+
+## What the step 1 result decided
 
 - **No `/dev/mem` and no large shared region:** the camera image can't be
   reached from Linux. Open gate is a dead end and this folder stops here.
