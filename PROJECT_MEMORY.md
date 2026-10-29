@@ -54,6 +54,7 @@
 - 2026-10-26: Camera has ~400-600MB free RAM under normal shooting — plenty for background image processing at nice -n 19
 
 ## What Didn't Work
+- 2026-10-29: Scanning all RAM via `dd if=/dev/mem` from phys 0 CRASHED the camera: external abort at phys 0x4000 (memrsv=1M@0), kernel oops in read_mem, auto-reboot. Only read /dev/mem ranges known to be safe (wbimem regions, ranges pid 152 maps). Never read MB 0 or 0xF... registers.
 - 2026-10-29: Open-gate (3:2 full-sensor) video assessed NOT possible: av-cam.bin (RTOS) format table is 16:9/SD only, menu has VALUEID_MOVIE_ASP_16_9/4_3/15_9 but no 3_2, no Backup.bin aspect/sensor-area property, 3840x2560 exceeds H.264 MaxFS (36864 MBs). Sensor modes compiled into av-cam.bin. Write-up: Claude Doc "a6400 open-gate video: feasibility".
 - 2026-10-29: STEP_FOCUS_NEAR/FAR keys (0x1A00002F/0x1A000030, ex_info 0) sent OK but did not move the SEL18135 in Focus Mode MF.
 - 2026-10-28: Deriving key codes by counting the order of KEY_REMOTE_* strings in libObj.so gave wrong focus codes (0x29/0x2A = AWBL/HFR_STANDBY) because codes jump from 0x19 to 0x20. Use the code-to-name pointer table instead.

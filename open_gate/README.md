@@ -42,9 +42,17 @@ memory, changes no settings, and writes only `/tmp/open_gate_probe.txt`.
 
 ## Step 2: find the format table in memory
 
-`scan_format_table.sh` reads RAM through `/dev/mem` 1 MB at a time and
-lists each MB that contains `3840X2160_24P`. It is read-only and takes a few
-minutes. If the camera ever freezes, pull the battery; nothing is written.
+**v1 crashed the camera (2026-10-29).** It read all RAM from physical 0,
+and reading 0x00004000 (inside `memrsv=1M@0`) caused an external abort
+(`read_mem` -> `__copy_to_user_std`). The kernel panicked and the camera
+rebooted on its own. Nothing was written. Not every RAM address is readable
+through `/dev/mem`, even when `/proc/iomem` lists it as System RAM.
+
+`scan_format_table.sh` v2 reads only the warm-boot regions (`wbimem=` in
+`/proc/cmdline`: 0x20028000, 0x10000000, 0x20200000). The kernel reads
+these itself when it saves the warm-boot image, and the main app maps parts of
+them. It lists each 256 KB block that contains `3840X2160_24P`. It is
+read-only. If it still crashes, the camera reboots itself as before.
 
 ```
 push open_gate\scan_format_table.sh /tmp/scan_format_table.sh

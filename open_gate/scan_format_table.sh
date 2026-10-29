@@ -2,39 +2,41 @@
 # scan_format_table.sh - read-only: find where the camera image keeps its
 # video format table in physical memory.
 #
-# Reads RAM through /dev/mem 1 MB at a time and reports each MB that contains
-# the pattern (default 3840X2160_24P). Never writes memory, changes no
-# settings, and writes only /tmp/open_gate_scan.txt. Takes a few minutes.
-# Only RAM ranges are read, never the 0xF... register area.
+# Reads ONLY the warm-boot (wbimem=) regions from /proc/cmdline. The kernel
+# itself reads these when it saves the warm-boot image, and the main camera
+# app maps parts of them, so they are known to be readable. Never reads
+# anything else: the first scan (v1) read physical 0x00004000 and the camera
+# crashed with an external abort and rebooted.
+#
+# Reports each 256 KB block containing the pattern (default 3840X2160_24P).
+# Never writes memory, changes no settings, writes only /tmp/open_gate_scan.txt.
 #
 #   scan_format_table.sh [PATTERN]
 
 OUT=/tmp/open_gate_scan.txt
 PAT=${1:-3840X2160_24P}
 
-# $1 = first MB, $2 = MB to stop before
+# $1 = first 4 KB page, $2 = number of pages, $3 = label
 scan() {
-    mb=$1
-    while [ $mb -lt $2 ]; do
-        if dd if=/dev/mem bs=1048576 skip=$mb count=1 2>/dev/null | grep "$PAT" >/dev/null; then
-            echo "hit MB $mb"
+    pg=$1
+    end=$(($1 + $2))
+    echo "== $3: pages $1-$((end - 1))"
+    while [ $pg -lt $end ]; do
+        n=64
+        [ $((pg + n)) -gt $end ] && n=$((end - pg))
+        if dd if=/dev/mem bs=4096 skip=$pg count=$n 2>/dev/null | grep "$PAT" >/dev/null; then
+            echo "hit at page $pg (+$n pages)"
         fi
-        mb=$((mb + 1))
+        pg=$((pg + n))
     done
-    echo "done up to MB $2"
 }
 
 {
     echo "pattern: $PAT"
-    echo "main app (pid 152):"
-    ls -l /proc/152/exe 2>&1
-    echo ""
-    echo "== RAM 0x00000000-0x3FFFFFFF (MB 0-1023)"
-    scan 0 1024
-    echo ""
-    echo "== RAM 0x80000000-0x8FFFFFFF (MB 2048-2303)"
-    dd if=/dev/mem bs=1048576 skip=2048 count=1 2>&1 >/dev/null
-    scan 2048 2304
+    scan 131112 236 "wbimem 0xEC000@0x20028000"
+    scan 65536 2413 "wbimem 0x96D000@0x10000000"
+    scan 131584 14614 "wbimem 0x3916000@0x20200000"
+    echo "done"
 } > "$OUT" 2>&1
 
 cat "$OUT"
