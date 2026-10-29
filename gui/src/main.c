@@ -166,10 +166,11 @@ static enum nav_event input_poll(struct input_poller *ip)
     }
 
     /* 2. Poll /proc/udm/input (or /proc/input) via "get 0xXXXX" per keycode.
-     * In input.ko (Getkey at 0x0e74..0x11fc):
-     *   value ([r4, #0xc]) == 0x7fffffff -> key is RELEASED
-     *   value ([r4, #0xc]) == 0x7ffffffe -> keycode not found
-     *   value != 0x7fffffff && value != 0x7ffffffe -> key is PRESSED */
+     * In input.ko (Getkey at 0x0e74..0x11fc and kbd_timer_hndlr at 0x2734..0x2740):
+     *   value ([r4, #0xc]) == 0x0        -> key is RELEASED (after initial sample)
+     *   value ([r4, #0xc]) == 0x7fffffff -> key is RELEASED (never changed since boot)
+     *   value ([r4, #0xc]) == 0x7ffffffe -> keycode not found in table
+     *   value != 0 && value != 0x7fffffff && value != 0x7ffffffe (e.g. 0x1) -> key is PRESSED */
     if (!ip->proc_ready) {
         input_init(ip);
     }
@@ -183,7 +184,7 @@ static enum nav_event input_poll(struct input_poller *ip)
                 const char *vl = find_substr(buf, "value:");
                 if (vl) {
                     u32 val = parse_hex(vl + 6);
-                    if (val != 0x7fffffffu && val != 0x7ffffffeu) {
+                    if (val != 0u && val != 0x7fffffffu && val != 0x7ffffffeu) {
                         pressed_code = POLL_KEYS[i].code;
                         pressed_ev = POLL_KEYS[i].ev;
                         break;
@@ -605,7 +606,7 @@ static void render_menu(struct fb *f, const struct menu_state *m)
     /* Footer bar */
     gfx_fill(f, 2, h - 54, w - 4, 52, c_hdr);
     gfx_text(f, pad, h - 48, m->status, c_green, 1, w - 2 * pad);
-    gfx_text(f, pad, h - 24, "UP/DN:Move  L/R:Change  ENTER:Run  C1:Hide  DEL:Quit", c_muted, 1, w - 2 * pad);
+    gfx_text(f, pad, h - 24, "UP/DN:Move  L/R:Change  ENTER:Run  C1:Hide  C2:Quit", c_muted, 1, w - 2 * pad);
 
     fb_present(f);
 }
@@ -759,7 +760,7 @@ int main(int argc, char **argv, char **envp)
     m.bulb_idx = 1; /* 30s default */
     m.exit_mode = 1; /* Quit GUI default on Row 8 */
     load_ritual_ini(&m);
-    fmt(m.status, sizeof(m.status), "Ready. C1/MENU:Hide  DEL(C2):Quit");
+    fmt(m.status, sizeof(m.status), "Ready. C1:Hide/Show  C2(Trash):Quit");
 
     input_init(&ip);
 
