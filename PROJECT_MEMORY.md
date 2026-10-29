@@ -63,6 +63,7 @@
 - 2026-10-26: /dev/fb0 does NOT exist — display driven by DMP SUGILITE GPU via /dev/dmpgles2 and Guiengine_161H. No direct framebuffer access for overlays.
 
 ## Findings
+- 2026-10-29: Camera probe (open_gate/probe_rtos_mem.sh): /dev/mem exists and main app pid 152 mmaps it (phys 0x10xxxxxx, 0x20xxxxxx, 0xF... regs). Linux manages only 112 MB; memrsv reserves 0x09915000+167MB, 0x14000000+704MB, 0x80E00000+242MB for the camera core. BusyBox 1.13 has no tee.
 - 2026-10-29: nflasha3 av-cam.bin (16 MB, RTOS camera image) holds the movie format strings (e.g. 3840X2160_24P) and imager drive-mode checks; libObj.so 3:2 movie enums are shared-codebase debug/container metadata, not selectable modes.
 - 2026-10-29: USB PC remote focus (PTP 0xD2D1 Near/Far) = key FOCUS_DRIVE_NEAR_FAR 0x1A000025 press+release with signed short step in ex_info (-=near, +=far; 1/3/7). Source: libInfraRemote.so CtrlCode2InputKey 0xb522, actionControlDevice 0xbb96. focus_bracket/focus.sh uses this.
 - 2026-10-28: Remote key codes (source 0x1a) come from a {code, name*} debug table in libObj.so (~file offset 0x13e2a50). Codes skip 0x1A..0x1F. STEP_FOCUS_NEAR=0x1A00002F, STEP_FOCUS_FAR=0x1A000030, FOCUS_DRIVE_NEAR_FAR=0x1A000025, FORMAT=0x1A00002E (never send). Both focus keys are in the default KEY! table and BIN! 0x1a block of CX62600_UC2.bin. Full table: focus_bracket/FOCUS_STEP_RESEARCH.md.
