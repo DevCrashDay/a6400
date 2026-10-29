@@ -9,6 +9,7 @@
 # crashed with an external abort and rebooted.
 #
 # Reports each 256 KB block containing the pattern (default 3840X2160_24P).
+# Progress goes to the screen; takes several minutes on the camera.
 # Never writes memory, changes no settings, writes only /tmp/open_gate_scan.txt.
 #
 #   scan_format_table.sh [PATTERN]
@@ -21,11 +22,13 @@ scan() {
     pg=$1
     end=$(($1 + $2))
     echo "== $3: pages $1-$((end - 1))"
+    echo "scanning $3 ($2 pages)..." >&2
     while [ $pg -lt $end ]; do
         n=64
         [ $((pg + n)) -gt $end ] && n=$((end - pg))
         if dd if=/dev/mem bs=4096 skip=$pg count=$n 2>/dev/null | grep "$PAT" >/dev/null; then
             echo "hit at page $pg (+$n pages)"
+            echo "  hit at page $pg" >&2
         fi
         pg=$((pg + n))
     done
@@ -37,7 +40,7 @@ scan() {
     scan 65536 2413 "wbimem 0x96D000@0x10000000"
     scan 131584 14614 "wbimem 0x3916000@0x20200000"
     echo "done"
-} > "$OUT" 2>&1
+} > "$OUT"
 
 cat "$OUT"
 echo ""
