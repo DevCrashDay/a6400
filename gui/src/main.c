@@ -5,6 +5,8 @@
 #define CMD_FILE "/tmp/gui.cmd"
 #define LOG_FILE "/tmp/gui.log"
 #define RITUAL_INI "/mnt/RITUAL.ini"
+#define RITUAL_INI_TMP "/tmp/RITUAL.ini"
+#define RITUAL_STATUS_FILE "/tmp/ritual_status.txt"
 
 /* Sony a6400 physical keycodes from Backup.bin & libObj.so */
 #define KEY_TACT_UP      0x0003u
@@ -96,9 +98,10 @@ static u32 parse_hex(const char *s)
     return v;
 }
 
-/* ---- Input polling (/proc/input + /tmp/gui.cmd) ---- */
+/* ---- Input polling (/proc/udm/input + /proc/input + /tmp/gui.cmd) ---- */
 
 struct input_poller {
+    const char *proc_path;
     int proc_ready;
     u32 last_keycode;
     u32 last_val;
@@ -108,46 +111,40 @@ struct input_poller {
 static void input_init(struct input_poller *ip)
 {
     memset(ip, 0, sizeof(*ip));
-    if (write_file("/proc/input", "get\n", 4, 0) >= 0)
+    if (write_file("/proc/udm/input", "get 0x01ac\n", 11, 0) >= 0) {
+        ip->proc_path = "/proc/udm/input";
         ip->proc_ready = 1;
-}
-
-static enum nav_event map_keycode(u32 code)
-{
-    switch (code) {
-    case KEY_TACT_UP:
-    case KEY_TACT_UP_BI:
-    case KEY_TACT_DISP:
-        return NAV_UP;
-    case KEY_TACT_DOWN:
-    case KEY_TACT_DOWN_BI:
-        return NAV_DOWN;
-    case KEY_TACT_LEFT:
-    case KEY_TACT_LEFT_BI:
-    case KEY_KURU_LEFT:
-    case KEY_WHEEL_LEFT:
-        return NAV_LEFT;
-    case KEY_TACT_RIGHT:
-    case KEY_TACT_RIGHT_BI:
-    case KEY_KURU_RIGHT:
-    case KEY_WHEEL_RIGHT:
-        return NAV_RIGHT;
-    case KEY_TACT_ENTER:
-    case KEY_TACT_ENT_BI:
-        return NAV_ENTER;
-    case KEY_TACT_MENU:
-    case KEY_TACT_DELETE:
-        return NAV_BACK;
-    case KEY_TACT_CUSTOM:
-        return NAV_TOGGLE_OSD;
-    default:
-        return NAV_NONE;
+    } else if (write_file("/proc/input", "get 0x01ac\n", 11, 0) >= 0) {
+        ip->proc_path = "/proc/input";
+        ip->proc_ready = 1;
+    } else {
+        ip->proc_path = "/proc/udm/input";
     }
 }
 
+static const struct {
+    u32 code;
+    const char *qstr;
+    size_t qlen;
+    enum nav_event ev;
+} POLL_KEYS[] = {
+    { KEY_TACT_UP,     "get 0x0003\n", 11, NAV_UP },
+    { KEY_TACT_DOWN,   "get 0x0030\n", 11, NAV_DOWN },
+    { KEY_TACT_LEFT,   "get 0x0015\n", 11, NAV_LEFT },
+    { KEY_TACT_RIGHT,  "get 0x01af\n", 11, NAV_RIGHT },
+    { KEY_TACT_ENTER,  "get 0x01ac\n", 11, NAV_ENTER },
+    { KEY_TACT_MENU,   "get 0x01ab\n", 11, NAV_BACK },
+    { KEY_TACT_CUSTOM, "get 0x0066\n", 11, NAV_TOGGLE_OSD },
+    { KEY_TACT_DELETE, "get 0x01f8\n", 11, NAV_QUIT },
+};
+#define NUM_POLL_KEYS 8
+
 static enum nav_event input_poll(struct input_poller *ip)
 {
-    char buf[1024];
+    char buf[512];
+    int i;
+    u32 pressed_code = 0;
+    enum nav_event pressed_ev = NAV_NONE;
 
     /* 1. Check external control command file (/tmp/gui.cmd) */
     if (read_file(CMD_FILE, buf, sizeof(buf)) > 0) {
@@ -170,29 +167,43 @@ static enum nav_event input_poll(struct input_poller *ip)
             return NAV_QUIT;
     }
 
-    /* 2. Poll /proc/input (in "get" mode) */
+    /* 2. Poll /proc/udm/input (or /proc/input) via "get 0xXXXX" per keycode.
+     * In input.ko (Getkey at 0x0e74..0x11fc and kbd_timer_hndlr at 0x2734..0x2740):
+     *   value ([r4, #0xc]) == 0x0        -> key is RELEASED (after initial sample)
+     *   value ([r4, #0xc]) == 0x7fffffff -> key is RELEASED (never changed since boot)
+     *   value ([r4, #0xc]) == 0x7ffffffe -> keycode not found in table
+     *   value != 0 && value != 0x7fffffff && value != 0x7ffffffe (e.g. 0x1) -> key is PRESSED */
     if (!ip->proc_ready) {
-        if (write_file("/proc/input", "get\n", 4, 0) >= 0)
-            ip->proc_ready = 1;
+        input_init(ip);
     }
-    if (ip->proc_ready && read_file("/proc/input", buf, sizeof(buf)) > 0) {
-        const char *kc = find_substr(buf, "keycode:");
-        const char *vl = find_substr(buf, "value:");
-        if (kc && vl) {
-            u32 code = parse_hex(kc + 8);
-            u32 val = parse_hex(vl + 6);
-            u32 now = now_ms();
-            if (val == 1 && (code != ip->last_keycode || ip->last_val == 0 || (now - ip->last_press_ms) > 250)) {
-                ip->last_keycode = code;
-                ip->last_val = val;
-                ip->last_press_ms = now;
-                return map_keycode(code);
+    if (ip->proc_ready) {
+        for (i = 0; i < NUM_POLL_KEYS; i++) {
+            if (write_file(ip->proc_path, POLL_KEYS[i].qstr, POLL_KEYS[i].qlen, 0) < 0)
+                break;
+            if (read_file(ip->proc_path, buf, sizeof(buf)) <= 0)
+                break;
+            {
+                const char *vl = find_substr(buf, "value:");
+                if (vl) {
+                    u32 val = parse_hex(vl + 6);
+                    if (val != 0u && val != 0x7fffffffu && val != 0x7ffffffeu) {
+                        pressed_code = POLL_KEYS[i].code;
+                        pressed_ev = POLL_KEYS[i].ev;
+                        break;
+                    }
+                }
             }
-            ip->last_keycode = code;
-            ip->last_val = val;
-        } else if (find_substr(buf, "KeyConfig")) {
-            /* /proc/input reset to table mode; re-select get mode */
-            write_file("/proc/input", "get\n", 4, 0);
+        }
+        if (pressed_code != 0) {
+            u32 now = now_ms();
+            if (pressed_code != ip->last_keycode || ip->last_val == 0 || (now - ip->last_press_ms) > 250) {
+                ip->last_keycode = pressed_code;
+                ip->last_val = 1;
+                ip->last_press_ms = now;
+                return pressed_ev;
+            }
+        } else {
+            ip->last_val = 0;
         }
     }
 
@@ -344,7 +355,8 @@ static void load_ritual_ini(struct menu_state *m)
     m->stock_idx = 0;
     m->grain_idx = 2;
     m->halation = 1;
-    if (read_file(RITUAL_INI, buf, sizeof(buf)) <= 0)
+    if (read_file(RITUAL_INI_TMP, buf, sizeof(buf)) <= 0 &&
+        read_file(RITUAL_INI, buf, sizeof(buf)) <= 0)
         return;
     for (i = 0; i < NUM_STOCKS; i++) {
         if (find_substr(buf, STOCKS[i])) {
@@ -377,7 +389,21 @@ static void save_ritual_ini(struct menu_state *m)
                 STOCKS[m->stock_idx],
                 GRAINS[m->grain_idx],
                 m->halation ? "ON" : "OFF");
-    write_file(RITUAL_INI, buf, (size_t)n, 0);
+    write_file(RITUAL_INI_TMP, buf, (size_t)n, 0);
+    if (sys_access("/mnt/DCIM", 0) == 0)
+        write_file(RITUAL_INI, buf, (size_t)n, 0);
+}
+
+static void ensure_ritual_daemon(void)
+{
+    const char *cmd =
+        "if [ ! -f /tmp/ritual_daemon.pid ] || ! pidof ritual_daemon >/dev/null 2>&1; then "
+        "  killall ritual_daemon 2>/dev/null; "
+        "  if [ -x /tmp/ritual_daemon ]; then /tmp/ritual_daemon >/dev/null 2>&1 & "
+        "  elif [ -x /mnt/ritual_daemon ]; then /mnt/ritual_daemon >/dev/null 2>&1 & "
+        "  fi; "
+        "fi";
+    spawn_sh(cmd, 0, NULL);
 }
 
 static const char *resolve_script(const char *tmp_path, const char *mnt_path, const char *sub_path)
@@ -444,10 +470,13 @@ static void execute_row(struct menu_state *m, int *osd_visible)
         break;
     }
     case 4:
-    case 5:
+    case 5: {
         save_ritual_ini(m);
-        fmt(m->status, sizeof(m->status), "Saved %s (%s)", STOCKS[m->stock_idx], GRAINS[m->grain_idx]);
+        ensure_ritual_daemon();
+        write_file("/tmp/ritual_develop_latest", "1\n", 2, 0);
+        fmt(m->status, sizeof(m->status), "Applying %s (%s)...", STOCKS[m->stock_idx], GRAINS[m->grain_idx]);
         break;
+    }
     case 6: { /* 30-Min Rec Limit */
         const char *sh = resolve_script("/tmp/rec_unlimit.sh", "/mnt/rec_unlimit.sh", "/mnt/rec_unlimit/rec_unlimit.sh");
         if (sys_access(sh, 0) == 0) {
@@ -597,7 +626,7 @@ static void render_menu(struct fb *f, const struct menu_state *m)
     /* Footer bar */
     gfx_fill(f, 2, h - 54, w - 4, 52, c_hdr);
     gfx_text(f, pad, h - 48, m->status, c_green, 1, w - 2 * pad);
-    gfx_text(f, pad, h - 24, "UP/DN:Select  L/R:Change  ENTER:Run  MENU/C1:Hide", c_muted, 1, w - 2 * pad);
+    gfx_text(f, pad, h - 24, "UP/DN:Move  L/R:Change  ENTER:Run  C1:Hide  C2:Quit", c_muted, 1, w - 2 * pad);
 
     fb_present(f);
 }
@@ -607,7 +636,9 @@ static void render_menu(struct fb *f, const struct menu_state *m)
 static int cmd_info(const char *fb_dev)
 {
     struct fb f;
-    char buf[2048];
+    char buf[4096];
+    int rc;
+    const char *in_path = "/proc/udm/input";
 
     printf("=== Sony a6400 GUI / Display / Input Probe ===\n");
     if (read_file("/proc/fb", buf, sizeof(buf)) > 0)
@@ -615,18 +646,30 @@ static int cmd_info(const char *fb_dev)
     else
         printf("/proc/fb: (empty or unavailable)\n");
 
-    if (fb_open(&f, fb_dev, 0) == 0) {
+    if (read_file("/proc/udm/ma_memspace_info", buf, sizeof(buf)) > 0)
+        printf("\n/proc/udm/ma_memspace_info:\n%s\n", buf);
+    else
+        printf("\n/proc/udm/ma_memspace_info: unavailable\n");
+
+    rc = fb_open(&f, fb_dev, 0);
+    if (rc == 0) {
         fb_print_info(&f, 1);
         fb_close(&f);
     } else {
-        printf("fb_open(%s) failed (errno-like rc=%d)\n", fb_dev ? fb_dev : "/dev/fb0", f.fd);
+        printf("fb_open(%s) failed (errno-like rc=%d)\n", fb_dev ? fb_dev : "/dev/fb0", rc);
     }
 
-    if (write_file("/proc/input", "table\n", 6, 0) >= 0 &&
-        read_file("/proc/input", buf, sizeof(buf)) > 0) {
-        printf("\n/proc/input (table preview):\n%s\n", buf);
+    if (write_file(in_path, "table\n", 6, 0) < 0)
+        in_path = "/proc/input";
+    if (write_file(in_path, "table\n", 6, 0) >= 0 &&
+        read_file(in_path, buf, sizeof(buf)) > 0) {
+        printf("\n%s (table preview):\n%s\n", in_path, buf);
     } else {
-        printf("\n/proc/input: unavailable\n");
+        printf("\n/proc/udm/input & /proc/input: unavailable\n");
+    }
+    if (write_file(in_path, "get 0x01ac\n", 11, 0) >= 0 &&
+        read_file(in_path, buf, sizeof(buf)) > 0) {
+        printf("\n%s (get 0x01ac [ENTER] preview):\n%s\n", in_path, buf);
     }
     return 0;
 }
@@ -665,8 +708,10 @@ static int cmd_banner(const char *fb_dev, const char *msg, u32 seconds)
     set_signal(SIGTERM, on_sig);
     set_signal(SIGHUP, on_sig);
 
-    for (u32 t = 0; t < seconds * 5 && !g_stop; t++)
-        msleep(200);
+    for (u32 t = 0; t < seconds * 20 && !g_stop; t++) {
+        fb_present(&f);
+        msleep(50);
+    }
 
     fb_restore(&f);
     fb_close(&f);
@@ -733,8 +778,11 @@ int main(int argc, char **argv, char **envp)
 
     memset(&m, 0, sizeof(m));
     m.bulb_idx = 1; /* 30s default */
+    m.exit_mode = 1; /* Quit GUI default on Row 8 */
+    ensure_ritual_daemon();
     load_ritual_ini(&m);
-    fmt(m.status, sizeof(m.status), "Ready. Press C1 or MENU to hide/show.");
+    save_ritual_ini(&m);
+    fmt(m.status, sizeof(m.status), "Ready. C1:Hide/Show  C2(Trash):Quit");
 
     input_init(&ip);
 
@@ -747,6 +795,21 @@ int main(int argc, char **argv, char **envp)
         }
     }
 
+    char last_ritual_status[64];
+    int status_tick = 0;
+    last_ritual_status[0] = '\0';
+    {
+        char sbuf[128];
+        if (read_file(RITUAL_STATUS_FILE, sbuf, sizeof(sbuf)) > 0) {
+            int k = 0;
+            while (sbuf[k] && sbuf[k] != '\n' && sbuf[k] != '\r' && k < (int)sizeof(last_ritual_status) - 1) {
+                last_ritual_status[k] = sbuf[k];
+                k++;
+            }
+            last_ritual_status[k] = '\0';
+        }
+    }
+
     while (!g_stop) {
         enum nav_event ev = input_poll(&ip);
         int prev_bg = g_bg_pid;
@@ -754,6 +817,25 @@ int main(int argc, char **argv, char **envp)
         if (prev_bg > 0 && g_bg_pid == 0) {
             fmt(m.status, sizeof(m.status), "Task completed.");
             dirty = 1;
+        }
+
+        if (++status_tick >= 20) {
+            char sbuf[128];
+            status_tick = 0;
+            if (read_file(RITUAL_STATUS_FILE, sbuf, sizeof(sbuf)) > 0) {
+                char line[64];
+                int k = 0;
+                while (sbuf[k] && sbuf[k] != '\n' && sbuf[k] != '\r' && k < (int)sizeof(line) - 1) {
+                    line[k] = sbuf[k];
+                    k++;
+                }
+                line[k] = '\0';
+                if (line[0] != '\0' && strcmp(line, last_ritual_status) != 0) {
+                    fmt(last_ritual_status, sizeof(last_ritual_status), "%s", line);
+                    fmt(m.status, sizeof(m.status), "%s", line);
+                    dirty = 1;
+                }
+            }
         }
 
         if (ev == NAV_QUIT) {
@@ -800,9 +882,13 @@ int main(int argc, char **argv, char **envp)
             }
         }
 
-        if (osd_visible && dirty) {
-            render_menu(&f, &m);
-            dirty = 0;
+        if (osd_visible) {
+            if (dirty) {
+                render_menu(&f, &m);
+                dirty = 0;
+            } else {
+                fb_present(&f);
+            }
         }
 
         msleep(40);

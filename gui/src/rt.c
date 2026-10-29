@@ -186,8 +186,9 @@ static int vfmt(char *buf, size_t cap, const char *f, va_list ap)
     size_t o = 0;
 #define PUT(ch)                 \
     do {                        \
+        char _c = (ch);         \
         if (o + 1 < cap)        \
-            buf[o] = (ch);      \
+            buf[o] = _c;        \
         o++;                    \
     } while (0)
     for (; *f; f++) {
@@ -269,7 +270,7 @@ int fmt(char *buf, size_t cap, const char *f, ...)
 
 void fdprintf(int fd, const char *f, ...)
 {
-    char buf[512];
+    char buf[2048];
     va_list ap;
     int n;
     va_start(ap, f);
