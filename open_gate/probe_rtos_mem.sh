@@ -10,6 +10,8 @@
 
 OUT=/tmp/open_gate_probe.txt
 
+# Uses only applets the camera's BusyBox 1.13 has (no tee, head, awk, wc).
+
 section() {
     echo ""
     echo "==== $* ===="
@@ -36,7 +38,7 @@ show() {
     grep -E ' (mem|osal|uipc|lld|ldec|dmac)' /proc/devices 2>&1
 
     section "/proc/meminfo"
-    head -n 8 /proc/meminfo 2>&1
+    show /proc/meminfo
 
     section "loaded modules"
     show /proc/modules
@@ -46,12 +48,13 @@ show() {
     # and how big they are. Shared camera-core memory would show up here.
     for d in /proc/[0-9]*; do
         [ -r "$d/maps" ] || continue
-        m=$(awk '$2 ~ /s$/ || $6 ~ /^\/dev\// { print $1, $2, $6 }' "$d/maps" 2>/dev/null | sort -u | head -n 40)
+        m=$(grep -E ' [r-][w-][x-]s | /dev/' "$d/maps" 2>/dev/null)
         [ -n "$m" ] || continue
-        echo "-- pid ${d#/proc/}: $(tr '\0' ' ' < "$d/cmdline" 2>/dev/null | cut -c1-80)"
+        echo "-- pid ${d#/proc/}: $(tr '\0' ' ' < "$d/cmdline" 2>/dev/null)"
         echo "$m"
     done
-} 2>&1 | tee "$OUT"
+} > "$OUT" 2>&1
 
+cat "$OUT"
 echo ""
 echo "Saved to $OUT"
