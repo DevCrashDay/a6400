@@ -46,6 +46,7 @@
 
 ## What Worked
 - 2026-10-29: CONFIRMED on camera (fw 2.00, no phone connected): `probe_shutter.sh half` autofocuses 3 s without shooting, `probe_shutter.sh` takes a picture, `shutter.sh bulb 45` in M/BULB gives a 45 s exposure. sndcmd prints nothing and returns 0. Ports 10000/15740 closed in normal shooting mode.
+- 2026-10-29: Script shutter via InfraInput test hook confirmed on camera: focus_bracket.sh took 10 pictures with S1/S2 keys 0x1A00000D/0x1A00000E (sndcmd.elf --sync 0x007A018C). ~1 s per sndcmd call.
 - 2026-10-26: pmca-console-v0.18-win.exe serviceshell gives root shell. USB must be Mass Storage mode.
 - 2026-10-26: Static ARMv7 ELF with raw syscalls runs on camera from /tmp
 - 2026-10-26: /tmp (nflasha10) is persistent vfat, survives reboot - good staging area
@@ -57,6 +58,8 @@
 - 2026-10-28: Running the camera's real BusyBox (`nflasha7_unpacked/bin/busybox` + `/lib`) under `qemu-arm -L sysroot` to test scripts. Needs chmod +x on the extracted files and symlinks ld-linux.so.3/libc.so.6/libcrypt.so.1; external applets need wrapper scripts because there is no binfmt in the container.
 
 ## What Didn't Work
+- 2026-10-29: STEP_FOCUS_NEAR/FAR keys (0x1A00002F/0x1A000030, ex_info 0) sent OK but did not move the SEL18135 in Focus Mode MF.
+- 2026-10-28: Deriving key codes by counting the order of KEY_REMOTE_* strings in libObj.so gave wrong focus codes (0x29/0x2A = AWBL/HFR_STANDBY) because codes jump from 0x19 to 0x20. Use the code-to-name pointer table instead.
 - 2026-10-26: PlayMemories Camera Apps (PMCA install) - not supported on a6400, Sony removed the platform
 - 2026-10-26: OpenMemories-Tweak - requires PMCA app install, cannot be used on a6400 directly
 - 2026-10-26: Direct menu modification - /usr is read-only ext2, .uxc files are binary format, no repack tooling exists
@@ -64,6 +67,8 @@
 - 2026-10-28: Treating `/mnt/project-files/Backup.bin` (from /setting) as BK4 format: it is not (starts `ba 3f 00 00 ...`). The parseable BK4 backups are the firmware defaults in `0110_backup/SYSASTRA-DSLR/DX2/CX626*.bin`. The older `analyze_backup_bin.py` 6-byte-entry layout is a guess and not the real format.
 
 ## Findings
+- 2026-10-29: USB PC remote focus (PTP 0xD2D1 Near/Far) = key FOCUS_DRIVE_NEAR_FAR 0x1A000025 press+release with signed short step in ex_info (-=near, +=far; 1/3/7). Source: libInfraRemote.so CtrlCode2InputKey 0xb522, actionControlDevice 0xbb96. focus_bracket/focus.sh uses this; untested on camera.
+- 2026-10-28: Remote key codes (source 0x1a) come from a {code, name*} debug table in libObj.so (~file offset 0x13e2a50). Codes skip 0x1A..0x1F. STEP_FOCUS_NEAR=0x1A00002F, STEP_FOCUS_FAR=0x1A000030, FOCUS_DRIVE_NEAR_FAR=0x1A000025, FORMAT=0x1A00002E (never send). Both focus keys are in the default KEY! table and BIN! 0x1a block of CX62600_UC2.bin. Full table: focus_bracket/FOCUS_STEP_RESEARCH.md.
 - 2026-10-26: PMCA `pull` command truncates every file by exactly 32 KB. Chunking with dd compensates.
 - 2026-10-26: SD card needs FAT32 formatting (kernel can't mount exFAT). Create dev node with `mknod /tmp/sd b 250 11`.
 - 2026-10-26: a6400 uses CXD90045 SoC (4x ARM Cortex-A5, ~600-800 MHz), same as ZV-E10 and ZV-1F
@@ -97,3 +102,4 @@
 - 2026-10-26: Thread "Dump a6400 storage for offline research" - Created dump guide, pushed to repo.
 - 2026-10-26: Thread "Review latest local homebrew progress" - Reviewed massive local build-out: full homebrew platform with LD_PRELOAD boot persistence, film lab daemon, terminal menu, mobile web UI, desktop wizard, SDK with 5 examples, 6 utility tools, full partition dumps, and comprehensive docs. Updated PROJECT_MEMORY.md.
 - 2026-10-28: Thread "Trigger shutter from scripts for astro" - Reverse-engineered shutter path (Wi-Fi remote S1/S2 key events + InfraInput test hook), built astro/ shutter, bulb and intervalometer scripts, tested under qemu with the camera's BusyBox.
+- 2026-10-28: Thread "Add focus stacking bracketing" - Derived focus step key codes from firmware key table. Built focus_bracket.sh + probe_focus.sh + research doc. PR #7. Recheck found and fixed wrong key codes (now 0x2F/0x30), key-hold repeat risk, settle timing and failure handling.
