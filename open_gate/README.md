@@ -78,6 +78,21 @@ at 0x80000000 (`memrsv=14M@0x80000000`), which is about the size of
 `av-cam.bin`. If that page is protected, the camera reboots, as with v1.
 Otherwise it scans the 14 MB. Output goes to `/tmp/open_gate_core.txt`.
 
+## Alternative: dump RAM to the SD card (analyze on the PC)
+
+`dump_ram_to_sd.sh` copies the same safe regions to `RAMDUMP/` on the SD
+card (about 67 MB), so the searching happens on the PC instead of with slow
+on-camera grep and lossy `pull`. Add `--core` to also dump the 14 MB at
+0x80000000, which may reboot the camera (the other dumps are saved first).
+The card must be FAT32.
+
+```
+push open_gate\dump_ram_to_sd.sh /tmp/dump_ram_to_sd.sh
+shell
+chmod +x /tmp/dump_ram_to_sd.sh
+/tmp/dump_ram_to_sd.sh --core
+```
+
 ## What the step 1 result decided
 
 - **No `/dev/mem` and no large shared region:** the camera image can't be
