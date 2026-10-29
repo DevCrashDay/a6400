@@ -133,7 +133,7 @@ static const struct {
     { KEY_TACT_ENTER,  "get 0x01ac\n", 11, NAV_ENTER },
     { KEY_TACT_MENU,   "get 0x01ab\n", 11, NAV_BACK },
     { KEY_TACT_CUSTOM, "get 0x0066\n", 11, NAV_TOGGLE_OSD },
-    { KEY_TACT_DELETE, "get 0x01f8\n", 11, NAV_BACK },
+    { KEY_TACT_DELETE, "get 0x01f8\n", 11, NAV_QUIT },
 };
 #define NUM_POLL_KEYS 8
 
@@ -166,8 +166,10 @@ static enum nav_event input_poll(struct input_poller *ip)
     }
 
     /* 2. Poll /proc/udm/input (or /proc/input) via "get 0xXXXX" per keycode.
-     * In input.ko, a key is released when subocde == 0x7fffffff, and pressed
-     * when subocde != 0x7fffffff && value != 0x7ffffffe. */
+     * In input.ko (Getkey at 0x0e74..0x11fc):
+     *   value ([r4, #0xc]) == 0x7fffffff -> key is RELEASED
+     *   value ([r4, #0xc]) == 0x7ffffffe -> keycode not found
+     *   value != 0x7fffffff && value != 0x7ffffffe -> key is PRESSED */
     if (!ip->proc_ready) {
         input_init(ip);
     }
@@ -178,14 +180,10 @@ static enum nav_event input_poll(struct input_poller *ip)
             if (read_file(ip->proc_path, buf, sizeof(buf)) <= 0)
                 break;
             {
-                const char *sc = find_substr(buf, "subocde:");
                 const char *vl = find_substr(buf, "value:");
-                if (!sc)
-                    sc = find_substr(buf, "subcode:");
-                if (sc && vl) {
-                    u32 subcode = parse_hex(sc + 8);
+                if (vl) {
                     u32 val = parse_hex(vl + 6);
-                    if (subcode != 0x7fffffffu && subcode != 0x7ffffffeu && val != 0x7ffffffeu) {
+                    if (val != 0x7fffffffu && val != 0x7ffffffeu) {
                         pressed_code = POLL_KEYS[i].code;
                         pressed_ev = POLL_KEYS[i].ev;
                         break;
@@ -607,7 +605,7 @@ static void render_menu(struct fb *f, const struct menu_state *m)
     /* Footer bar */
     gfx_fill(f, 2, h - 54, w - 4, 52, c_hdr);
     gfx_text(f, pad, h - 48, m->status, c_green, 1, w - 2 * pad);
-    gfx_text(f, pad, h - 24, "UP/DN:Select  L/R:Change  ENTER:Run  MENU/C1:Hide", c_muted, 1, w - 2 * pad);
+    gfx_text(f, pad, h - 24, "UP/DN:Move  L/R:Change  ENTER:Run  C1:Hide  DEL:Quit", c_muted, 1, w - 2 * pad);
 
     fb_present(f);
 }
@@ -631,9 +629,6 @@ static int cmd_info(const char *fb_dev)
         printf("\n/proc/udm/ma_memspace_info:\n%s\n", buf);
     else
         printf("\n/proc/udm/ma_memspace_info: unavailable\n");
-
-    if (read_file("/proc/udm/dmm_extents", buf, sizeof(buf)) > 0)
-        printf("\n/proc/udm/dmm_extents (preview):\n%s\n", buf);
 
     rc = fb_open(&f, fb_dev, 0);
     if (rc == 0) {
@@ -692,8 +687,10 @@ static int cmd_banner(const char *fb_dev, const char *msg, u32 seconds)
     set_signal(SIGTERM, on_sig);
     set_signal(SIGHUP, on_sig);
 
-    for (u32 t = 0; t < seconds * 5 && !g_stop; t++)
-        msleep(200);
+    for (u32 t = 0; t < seconds * 20 && !g_stop; t++) {
+        fb_present(&f);
+        msleep(50);
+    }
 
     fb_restore(&f);
     fb_close(&f);
@@ -760,8 +757,9 @@ int main(int argc, char **argv, char **envp)
 
     memset(&m, 0, sizeof(m));
     m.bulb_idx = 1; /* 30s default */
+    m.exit_mode = 1; /* Quit GUI default on Row 8 */
     load_ritual_ini(&m);
-    fmt(m.status, sizeof(m.status), "Ready. Press C1 or MENU to hide/show.");
+    fmt(m.status, sizeof(m.status), "Ready. C1/MENU:Hide  DEL(C2):Quit");
 
     input_init(&ip);
 
@@ -827,9 +825,13 @@ int main(int argc, char **argv, char **envp)
             }
         }
 
-        if (osd_visible && dirty) {
-            render_menu(&f, &m);
-            dirty = 0;
+        if (osd_visible) {
+            if (dirty) {
+                render_menu(&f, &m);
+                dirty = 0;
+            } else {
+                fb_present(&f);
+            }
         }
 
         msleep(40);
