@@ -79,6 +79,15 @@
 - 2026-10-28: Buttons: kmod/input.ko has no evdev; it sends keys over Sony OSAL IPC but also creates /proc/input (usage: table | get | adc | front | gpio | vgrip | multi_selector_soft). `echo table > /proc/input; cat /proc/input` should dump the key table.
 - 2026-10-26: Sony ARW files contain embedded JPEG preview within first 3MB — can be extracted by scanning for JPEG SOI/EOI markers
 
+## Done (continued)
+- 2026-10-28: Implemented 30-minute recording limit removal feature. Three Backup.bin properties (0x003c0373/H, 0x003c0374/M, 0x003c0375/S) changed from factory 0h29m50s to 13h01m00s. Values sourced from OpenMemories-Platform (backup.cpp line 249, tweaks.cpp line 249). Uses bk.elf r/w/s commands. Integrated into autoexec.sh Section 9 (opt-in via /mnt/enable_rec_unlimit, killswitch via /mnt/disable_rec_unlimit). Standalone tool: tools/rec_unlimit.sh (--status/--restore). Full docs: tools/README_rec_unlimit.md.
+
+## Findings (continued)
+- 2026-10-28: Recording limit stored as 3 separate 1-byte Backup.bin properties: 0x003c0373 (Hours), 0x003c0374 (Minutes), 0x003c0375 (Seconds). Factory = 00/1D/32 = 0h29m50s (EU import duty). Unrestricted = 0D/01/00 = 13h01m00s (Sony camcorder value, safe margin below 90KHz timer overflow at 13h15m21s).
+- 2026-10-28: S_SPLITMOVIE_ONOFF referenced in libObj.so, libsencore.so, libJiritsu.so, libInfraMediaCommon.so — the firmware-side setting that controls whether the recording engine enforces the time limit. The Backup.bin properties are the data it reads.
+- 2026-10-28: bk.elf at /usr/bin/bk.elf is the camera's built-in backup property tool. Syntax: `bk.elf r <HexID>` (read), `bk.elf w <HexID> <HexData>` (write), `bk.elf s` (sync to disk). Changes take effect on next recording start without reboot.
+- 2026-10-28: OpenMemories-Tweak/Platform property IDs confirmed identical to what the a6400 firmware uses. The 13h01m00s value has been used safely across thousands of Sony cameras since 2016.
+
 ## Open Issues
 - Backup.bin format not fully decoded — need to search for telnet/ADB/debug enable flags
 - L3 live view / framebuffer access still research-only (no /dev/fb0, display goes through DMP GPU)
