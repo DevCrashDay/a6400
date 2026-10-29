@@ -13,7 +13,7 @@
 - Shell-based tools: `probe.sh` (hardware/access probe), `watchdog.sh` (supervisor/killswitch monitor), `wifi_offload.sh`, `intervalometer.sh`, `focus_bracket.sh`, `aeb_hdr.sh`
 - Full partition dump completed: DUMP/ folder has 22 raw images of all NAND partitions (nflasha1 through nflasha23, plus variants like _setting, _wbi, _jiritsu, _work, _lens)
 - Comprehensive documentation: README.md, CAPABILITIES.md, DEVELOPER_GUIDE.md, DRIVER_SETUP_GUIDE.md, USER_GUIDE.md, TROUBLESHOOTING.md
-- Script-driven shutter (bulb > 30 s, intervalometer) implemented in `astro/` via Sony's InfraInput test hook (`sndcmd.elf --sync 0x007A018C`); awaiting first on-camera test (`astro/probe_shutter.sh half`). Next step: run astro/README.md test steps 5-7.
+- Script-driven shutter WORKS on camera (2026-10-29): `astro/shutter.sh` half-press, single shot and 45 s bulb all confirmed via Sony's InfraInput test hook (`sndcmd.elf --sync 0x007A018C`), with no phone connected. Next step: field test `astro/intervalometer.sh`.
 
 ## Decisions
 - 2026-10-26: Focus on Backup.bin analysis and ld.so.preload testing as most promising paths to persistent/GUI homebrew, rather than firmware modification (which is blocked by encryption)
@@ -45,6 +45,7 @@
 - 2026-10-28: Built `astro/shutter.sh` (shot/bulb/half/release), `astro/intervalometer.sh` (count/interval/bulb/delay, --bg, stop/abort/status, clock-scheduled), `astro/probe_shutter.sh`; tested with the camera's own BusyBox 1.13.4 ash under qemu-arm. Research write-up: `research/SHUTTER_TRIGGER_RESEARCH.md`.
 
 ## What Worked
+- 2026-10-29: CONFIRMED on camera (fw 2.00, no phone connected): `probe_shutter.sh half` autofocuses 3 s without shooting, `probe_shutter.sh` takes a picture, `shutter.sh bulb 45` in M/BULB gives a 45 s exposure. sndcmd prints nothing and returns 0. Ports 10000/15740 closed in normal shooting mode.
 - 2026-10-26: pmca-console-v0.18-win.exe serviceshell gives root shell. USB must be Mass Storage mode.
 - 2026-10-26: Static ARMv7 ELF with raw syscalls runs on camera from /tmp
 - 2026-10-26: /tmp (nflasha10) is persistent vfat, survives reboot - good staging area
@@ -88,7 +89,7 @@
 - autoexec_hook.so boot persistence needs on-camera verification (was ld.so.preload actually tested and confirmed working at boot?)
 - None of the new binaries (ritual_daemon, ritual_menu, arw_develop, etc.) have been confirmed running on camera yet — they're cross-compiled but need on-camera testing
 - Android partitions (nflasha16/17, 240MB) still unexplored
-- 2026-10-28: Unverified on camera: whether InfraInput acts on source-0x1a remote keys when no phone is connected (possible key inhibit). If not, try with Ctrl w/ Smartphone active, or the Remote API on :10000.
+- 2026-10-29: `astro/intervalometer.sh` not yet run on camera (shutter.sh primitives are confirmed).
 - sony_ptpip / intervalometer.sh / star_trails from the local platform are not in the repo; the PTP/IP-on-localhost:15740 claim was never verified.
 
 ## Session Log

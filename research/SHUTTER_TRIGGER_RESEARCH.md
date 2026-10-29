@@ -4,8 +4,8 @@ Goal: trigger the shutter from on-camera code, for an intervalometer and for
 bulb exposures longer than 30 s. All addresses below are from the v2.00
 firmware extracted into `fw_v200_extracted/` (`/usr` = `nflasha15`). Findings
 come from static analysis (ARM/Thumb disassembly with capstone, string and
-symbol tables). On-camera confirmation is still pending; see
-[`astro/README.md`](../astro/README.md) for the test steps.
+symbol tables). **Confirmed on Ash's camera on 2026-10-29**: half-press, single shot and a
+45 s bulb exposure all work with no phone connected.
 
 ## Result
 
@@ -125,13 +125,12 @@ and is an alternative sender.)
   *Ctrl w/ Smartphone* on. Not verified, and the local `sony_ptpip` tool is
   not in this repo. `probe_shutter.sh` reports whether 10000/15740 listen.
 
-## Open questions (need the camera)
+## Open questions
 
-1. Does the camera act on source-`0x1a` keys when no remote is connected, or
-   does it inhibit them (InfraInput has per-key inhibit flags)? The probe's
-   half-press step answers this without taking a picture.
-2. Does `sndcmd.elf --sync` return 0 on success and print anything?
-3. Does AF-S focus priority block S2 when focus fails? (Use MF for astro.)
+Answered on camera: source-`0x1a` keys are accepted with no remote connected,
+and `sndcmd.elf --sync` prints nothing and returns 0.
+
+1. Does AF-S focus priority block S2 when focus fails? (Use MF for astro.)
 
 ## Tools used
 
