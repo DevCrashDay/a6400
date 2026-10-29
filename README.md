@@ -1,3 +1,5 @@
+<img width="1024" height="572" alt="874692b8-eb8e-45e3-aeac-f1c90f7cb196" src="https://github.com/user-attachments/assets/7291fc4d-9811-4838-b761-6105e379cab3" />
+
 # a6400 Homebrew Platform
 
 **Unlock your Sony a6400's hidden potential.**
