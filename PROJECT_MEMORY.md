@@ -54,6 +54,7 @@
 - 2026-10-26: Camera has ~400-600MB free RAM under normal shooting — plenty for background image processing at nice -n 19
 
 ## What Didn't Work
+- 2026-10-29: Open-gate (3:2 full-sensor) video assessed NOT possible: av-cam.bin (RTOS) format table is 16:9/SD only, menu has VALUEID_MOVIE_ASP_16_9/4_3/15_9 but no 3_2, no Backup.bin aspect/sensor-area property, 3840x2560 exceeds H.264 MaxFS (36864 MBs). Sensor modes compiled into av-cam.bin. Write-up: Claude Doc "a6400 open-gate video: feasibility".
 - 2026-10-29: STEP_FOCUS_NEAR/FAR keys (0x1A00002F/0x1A000030, ex_info 0) sent OK but did not move the SEL18135 in Focus Mode MF.
 - 2026-10-28: Deriving key codes by counting the order of KEY_REMOTE_* strings in libObj.so gave wrong focus codes (0x29/0x2A = AWBL/HFR_STANDBY) because codes jump from 0x19 to 0x20. Use the code-to-name pointer table instead.
 - 2026-10-26: PlayMemories Camera Apps (PMCA install) - not supported on a6400, Sony removed the platform
@@ -62,6 +63,7 @@
 - 2026-10-26: /dev/fb0 does NOT exist — display driven by DMP SUGILITE GPU via /dev/dmpgles2 and Guiengine_161H. No direct framebuffer access for overlays.
 
 ## Findings
+- 2026-10-29: nflasha3 av-cam.bin (16 MB, RTOS camera image) holds the movie format strings (e.g. 3840X2160_24P) and imager drive-mode checks; libObj.so 3:2 movie enums are shared-codebase debug/container metadata, not selectable modes.
 - 2026-10-29: USB PC remote focus (PTP 0xD2D1 Near/Far) = key FOCUS_DRIVE_NEAR_FAR 0x1A000025 press+release with signed short step in ex_info (-=near, +=far; 1/3/7). Source: libInfraRemote.so CtrlCode2InputKey 0xb522, actionControlDevice 0xbb96. focus_bracket/focus.sh uses this.
 - 2026-10-28: Remote key codes (source 0x1a) come from a {code, name*} debug table in libObj.so (~file offset 0x13e2a50). Codes skip 0x1A..0x1F. STEP_FOCUS_NEAR=0x1A00002F, STEP_FOCUS_FAR=0x1A000030, FOCUS_DRIVE_NEAR_FAR=0x1A000025, FORMAT=0x1A00002E (never send). Both focus keys are in the default KEY! table and BIN! 0x1a block of CX62600_UC2.bin. Full table: focus_bracket/FOCUS_STEP_RESEARCH.md.
 - 2026-10-26: PMCA `pull` command truncates every file by exactly 32 KB. Chunking with dd compensates.
@@ -88,9 +90,12 @@
 - Android partitions (nflasha16/17, 240MB) still unexplored
 
 ## Session Log
-- 2026-10-28: Thread "Show homebrew GUI on camera screen" (PR #8) - researched display (libObj/DMP/fb0) and input (/proc/input), and implemented freestanding ARMv7 GUI framework in gui/ (t.h, t.c, b.h, b.c, ont.h, main.c, 	ools/mkfont.py, probe_gui.sh, 6400_gui.elf).
+- 2026-10-28: Thread "Show homebrew GUI on camera screen" (PR #8) - researched display (libObj/DMP/fb0) and input (/proc/input), and implemented freestanding ARMv7 GUI framework in gui/ (
+t.h, 
+t.c, b.h, b.c, ont.h, main.c, 	ools/mkfont.py, probe_gui.sh, 6400_gui.elf).
 - 2026-10-26: Thread "Launch homebrew apps from camera menu" - Researched GUI homebrew paths. Created handoff6400_v3.zip.
 - 2026-10-26: Thread "Dump a6400 storage for offline research" - Created dump guide, pushed to repo.
 - 2026-10-26: Thread "Review latest local homebrew progress" - Reviewed massive local build-out: full homebrew platform with LD_PRELOAD boot persistence, film lab daemon, terminal menu, mobile web UI, desktop wizard, SDK with 5 examples, 6 utility tools, full partition dumps, and comprehensive docs. Updated PROJECT_MEMORY.md.
 - 2026-10-28: Thread "Add focus stacking bracketing" - Derived focus step key codes from firmware key table. Built focus_bracket.sh + probe_focus.sh + research doc. PR #7. Recheck fixed wrong key codes; camera test showed STEP_FOCUS keys ignored; switched to PC-remote FOCUS_DRIVE+ex_info path, which moves focus on camera. PR #7 merged.
 - 2026-10-29: Thread "Organize features into separate folders" - Restructured repo: astro_shutter/ (from h74fa6), rec_unlimit/ (from a1qz2p), hook/ (from cbwb2j), focus_bracket/ (already existed). Each folder has a README with copy-to-camera and usage instructions. PR #10.
+- 2026-10-29: Thread "Assess open-gate video recording" - firmware research, verdict not possible; alternative is full-3:2 time-lapse via intervalometer.
