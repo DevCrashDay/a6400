@@ -42,7 +42,7 @@
 - 2026-10-26: Created comprehensive documentation suite (README, CAPABILITIES, DEVELOPER_GUIDE, DRIVER_SETUP_GUIDE, USER_GUIDE, TROUBLESHOOTING)
 
 ## What Worked
-- 2026-10-29: Script focus moves CONFIRMED on camera (Ash, SEL18135, Focus Mode MF): FOCUS_DRIVE 0x1A000025 with ex_info ±7 and ±1 moved focus (probe_focus.sh). Direction sign not yet explicitly confirmed. focus_bracket.sh with this path not yet run.
+- 2026-10-29: Script focus moves CONFIRMED on camera (Ash, SEL18135, Focus Mode MF): FOCUS_DRIVE 0x1A000025 with ex_info ±7 and ±1 moved focus (probe_focus.sh). 2026-10-29 focus_bracket.sh -n 10 -d far ran end to end on camera (10 shots, 9 small far steps, ~12 s/frame); Ash reports everything worked.
 - 2026-10-29: Script shutter via InfraInput test hook confirmed on camera: focus_bracket.sh took 10 pictures with S1/S2 keys 0x1A00000D/0x1A00000E (sndcmd.elf --sync 0x007A018C). ~1 s per sndcmd call.
 - 2026-10-26: pmca-console-v0.18-win.exe serviceshell gives root shell. USB must be Mass Storage mode.
 - 2026-10-26: Static ARMv7 ELF with raw syscalls runs on camera from /tmp

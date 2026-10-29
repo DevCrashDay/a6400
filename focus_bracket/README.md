@@ -9,8 +9,9 @@ It injects the same focus Near/Far key the camera's USB PC remote uses
 the camera's InfraInput test hook. See
 [FOCUS_STEP_RESEARCH.md](FOCUS_STEP_RESEARCH.md).
 
-**Status:** shutter keys and focus moves confirmed on camera (2026-10-29,
-SEL18135). Run `probe_focus.sh` once on a new lens.
+**Status:** working on camera (2026-10-29, SEL18135): `focus_bracket.sh
+-n 10 -d far` shot 10 frames with a small focus step between each, about
+12 s per frame. Run `probe_focus.sh` once on a new lens.
 
 ## Setup
 

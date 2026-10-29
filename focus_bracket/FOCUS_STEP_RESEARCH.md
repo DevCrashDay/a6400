@@ -132,5 +132,6 @@ action.
 
 1. ~~Does FOCUS_DRIVE with a non-zero `ex_info` move the lens?~~ Yes:
    confirmed 2026-10-29 on the SEL18135 with steps 7 and 1.
-2. Is the sign right (negative = near)?
+2. ~~Is the sign right (negative = near)?~~ Yes, 2026-10-29: a full
+   `focus_bracket.sh -n 10 -d far` run worked as expected.
 3. How far does one small step move the SEL18135, so how many per frame?
