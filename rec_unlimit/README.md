@@ -35,6 +35,21 @@ backup table. The `bk` tool (built into the camera at `/usr/bin/bk.elf`)
 reads and writes these properties. Changes take effect on the next
 recording without needing a reboot.
 
+## Copying to camera
+
+1. Camera: power on, USB mode Mass Storage.
+2. PC: start the service shell
+   (`pmca-console-v0.18-win.exe serviceshell` in your project folder).
+3. Push the script (from the PMCA prompt, before `shell`):
+   ```
+   push rec_unlimit\rec_unlimit.sh /tmp/rec_unlimit.sh
+   ```
+4. Enter the shell and make it executable:
+   ```
+   shell
+   chmod 755 /tmp/rec_unlimit.sh
+   ```
+
 ## Usage
 
 ### Manual (via PMCA service shell)

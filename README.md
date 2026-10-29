@@ -141,7 +141,7 @@ Transparency matters. Here's exactly what has and hasn't been tested on real har
 /usr/bin/bk.elf w 003c0375 00
 /usr/bin/bk.elf s
 ```
-Done. Takes effect on the next recording. Undo with `--restore` (see [tools/README_rec_unlimit.md](tools/README_rec_unlimit.md)).
+Done. Takes effect on the next recording. Undo with `--restore` (see [rec_unlimit/README.md](rec_unlimit/README.md)).
 
 **Install the boot hook** (for all other features):
 ```sh
@@ -158,8 +158,8 @@ After a power-cycle, the camera will automatically mount the SD card and start s
 **Test the shutter trigger** (no boot hook needed):
 ```sh
 # Push scripts from PMCA prompt (before typing 'shell')
-push astro\shutter.sh /tmp/shutter.sh
-push astro\probe_shutter.sh /tmp/probe_shutter.sh
+push astro_shutter\shutter.sh /tmp/shutter.sh
+push astro_shutter\probe_shutter.sh /tmp/probe_shutter.sh
 
 # In the shell
 chmod 755 /tmp/shutter.sh /tmp/probe_shutter.sh
@@ -178,14 +178,17 @@ a6400/
 │   ├── autoexec_hook.so            # Boot persistence hook (patched .so with ARM constructor)
 │   ├── autoexec.sh                 # Boot script — mounts SD, starts services
 │   ├── build_autoexec_hook.py      # Rebuild the hook from source (needs Keystone Engine)
-│   └── libAK8975.so               # Original unpatched library for reference
-├── tools/
+│   ├── libAK8975.so               # Original unpatched library for reference
+│   ├── check.sh                    # Full diagnostic — validates hook, clears state, tests
+│   └── verify-after-boot.sh        # Confirms hook fired after a real power-cycle
+├── rec_unlimit/
 │   ├── rec_unlimit.sh              # Remove / restore the 30-min recording limit
-│   └── README_rec_unlimit.md       # Full documentation for the recording limit tool
-├── astro/
+│   └── README.md                   # Full documentation for the recording limit tool
+├── astro_shutter/
 │   ├── shutter.sh                  # Script-driven shutter: single shot, bulb, half-press
 │   ├── intervalometer.sh           # Automated interval shooting for astro / timelapse
 │   ├── probe_shutter.sh            # First-run test script
+│   ├── SHUTTER_TRIGGER_RESEARCH.md # How the shutter key codes were reverse-engineered
 │   └── README.md                   # Astro tools documentation
 ├── focus_bracket/
 │   ├── focus_bracket.sh            # Automated focus stacking bracket
@@ -194,8 +197,6 @@ a6400/
 │   ├── probe_focus.sh              # Focus move test (no pictures taken)
 │   ├── README.md                   # Focus bracket documentation
 │   └── FOCUS_STEP_RESEARCH.md      # How the focus key codes were reverse-engineered
-├── check.sh                        # Full diagnostic — validates hook, clears state, tests
-├── verify-after-boot.sh            # Confirms hook fired after a real power-cycle
 ├── a6400_storage_dump_guide.md     # Guide to dumping NAND partitions for research
 ├── research/
 │   ├── README.md                   # Detailed feasibility analysis and architecture notes

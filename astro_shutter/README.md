@@ -10,7 +10,7 @@ from anything the boot hook starts). That gives you:
 Nothing is installed into firmware, no settings are changed and nothing is
 written outside `/tmp`. Sony's own test tool `/usr/bin/sndcmd.elf` does the
 work. How this was found is in
-[`research/SHUTTER_TRIGGER_RESEARCH.md`](../research/SHUTTER_TRIGGER_RESEARCH.md).
+[`SHUTTER_TRIGGER_RESEARCH.md`](SHUTTER_TRIGGER_RESEARCH.md).
 
 | File | What it does |
 |---|---|
@@ -43,9 +43,9 @@ sndcmd.elf --sync 0x007A018C d:2 d:<key> d:0 d:<1=press|0=release> d:0
    (`pmca-console-v0.18-win.exe serviceshell` in `F:\a6400project`).
 3. Push the three scripts (from the PMCA prompt, before `shell`):
    ```
-   push astro\shutter.sh /tmp/shutter.sh
-   push astro\intervalometer.sh /tmp/intervalometer.sh
-   push astro\probe_shutter.sh /tmp/probe_shutter.sh
+   push astro_shutter\shutter.sh /tmp/shutter.sh
+   push astro_shutter\intervalometer.sh /tmp/intervalometer.sh
+   push astro_shutter\probe_shutter.sh /tmp/probe_shutter.sh
    ```
 4. Enter the shell and make them executable:
    ```
