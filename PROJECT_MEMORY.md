@@ -42,6 +42,8 @@
 - 2026-10-26: Created comprehensive documentation suite (README, CAPABILITIES, DEVELOPER_GUIDE, DRIVER_SETUP_GUIDE, USER_GUIDE, TROUBLESHOOTING)
 
 ## What Worked
+- 2026-10-29: Script focus moves CONFIRMED on camera (Ash, SEL18135, Focus Mode MF): FOCUS_DRIVE 0x1A000025 with ex_info ±7 and ±1 moved focus (probe_focus.sh). 2026-10-29 focus_bracket.sh -n 10 -d far ran end to end on camera (10 shots, 9 small far steps, ~12 s/frame); Ash reports everything worked.
+- 2026-10-29: Script shutter via InfraInput test hook confirmed on camera: focus_bracket.sh took 10 pictures with S1/S2 keys 0x1A00000D/0x1A00000E (sndcmd.elf --sync 0x007A018C). ~1 s per sndcmd call.
 - 2026-10-26: pmca-console-v0.18-win.exe serviceshell gives root shell. USB must be Mass Storage mode.
 - 2026-10-26: Static ARMv7 ELF with raw syscalls runs on camera from /tmp
 - 2026-10-26: /tmp (nflasha10) is persistent vfat, survives reboot - good staging area
@@ -52,12 +54,16 @@
 - 2026-10-26: Camera has ~400-600MB free RAM under normal shooting — plenty for background image processing at nice -n 19
 
 ## What Didn't Work
+- 2026-10-29: STEP_FOCUS_NEAR/FAR keys (0x1A00002F/0x1A000030, ex_info 0) sent OK but did not move the SEL18135 in Focus Mode MF.
+- 2026-10-28: Deriving key codes by counting the order of KEY_REMOTE_* strings in libObj.so gave wrong focus codes (0x29/0x2A = AWBL/HFR_STANDBY) because codes jump from 0x19 to 0x20. Use the code-to-name pointer table instead.
 - 2026-10-26: PlayMemories Camera Apps (PMCA install) - not supported on a6400, Sony removed the platform
 - 2026-10-26: OpenMemories-Tweak - requires PMCA app install, cannot be used on a6400 directly
 - 2026-10-26: Direct menu modification - /usr is read-only ext2, .uxc files are binary format, no repack tooling exists
 - 2026-10-26: /dev/fb0 does NOT exist — display driven by DMP SUGILITE GPU via /dev/dmpgles2 and Guiengine_161H. No direct framebuffer access for overlays.
 
 ## Findings
+- 2026-10-29: USB PC remote focus (PTP 0xD2D1 Near/Far) = key FOCUS_DRIVE_NEAR_FAR 0x1A000025 press+release with signed short step in ex_info (-=near, +=far; 1/3/7). Source: libInfraRemote.so CtrlCode2InputKey 0xb522, actionControlDevice 0xbb96. focus_bracket/focus.sh uses this.
+- 2026-10-28: Remote key codes (source 0x1a) come from a {code, name*} debug table in libObj.so (~file offset 0x13e2a50). Codes skip 0x1A..0x1F. STEP_FOCUS_NEAR=0x1A00002F, STEP_FOCUS_FAR=0x1A000030, FOCUS_DRIVE_NEAR_FAR=0x1A000025, FORMAT=0x1A00002E (never send). Both focus keys are in the default KEY! table and BIN! 0x1a block of CX62600_UC2.bin. Full table: focus_bracket/FOCUS_STEP_RESEARCH.md.
 - 2026-10-26: PMCA `pull` command truncates every file by exactly 32 KB. Chunking with dd compensates.
 - 2026-10-26: SD card needs FAT32 formatting (kernel can't mount exFAT). Create dev node with `mknod /tmp/sd b 250 11`.
 - 2026-10-26: a6400 uses CXD90045 SoC (4x ARM Cortex-A5, ~600-800 MHz), same as ZV-E10 and ZV-1F
@@ -69,16 +75,12 @@
 - 2026-10-26: Button input passes through snd_InfraInputEvent_to_InputServant in libObj.so (PLT relocatable) — can be intercepted for custom menus
 - 2026-10-26: Live view driven by DMP SUGILITE hardware, /dev/dmpgles2, Guiengine_161H — no /dev/fb0. On-screen text can be intercepted via GEN_Label::setText / TextSprite. External HDMI recommended for video overlays.
 - 2026-10-26: Sony ARW files contain embedded JPEG preview within first 3MB — can be extracted by scanning for JPEG SOI/EOI markers
-- 2026-10-27: BusyBox 1.13.4 on-camera is MISSING these applets/flags: `head`, `od`, `hexdump`, `killall`, `nice`, `awk`, `wc`, `id`, `cat -v`. The `cat` builtin only supports `-u`. Scripts must use only confirmed-available commands (cat, dd, grep, ls, echo, sleep, rm, kill, pidof, chmod, mount, sh, cp, mv, mkdir, df, ps, tr, test/[). All scripts MUST use LF (Unix) line endings — CRLF breaks the shebang, sleep args, and redirects in BusyBox ash.
-- 2026-10-27: Portable file-size without wc/awk/stat: `set -- $(ls -l FILE); SIZE=$5` (size is the 5th field of `ls -l`). Uses only the shell's own field splitting.
-- 2026-10-27: LD_PRELOAD hook CONFIRMED firing on camera (via manual LD_PRELOAD). autoexec.log shows telnetd 2323, web UI 8080, film engine + watchdog launched. `nice` fix VERIFIED on-camera (ritual.log now clean, just "[Ritual] a6400 In-Camera Film Lab starting...", zero nice errors). check.sh v4 working (size check via `ls -l` field split, stale-daemon cleanup).
-- 2026-10-27: busybox-wrapped daemons need ps-matching to kill, not pidof: httpd/telnetd run as `/tmp/busybox httpd ...` (argv[0]=busybox) and watchdog as `/bin/sh /mnt/watchdog.sh`, so `pidof httpd`/`pidof watchdog.sh` miss them. Match on `ps | grep PATTERN` instead.
 
 ## Open Issues
 - Backup.bin format not fully decoded — need to search for telnet/ADB/debug enable flags
 - L3 live view / framebuffer access still research-only (no /dev/fb0, display goes through DMP GPU)
 - Wi-Fi offload feature (FTP upload of developed photos) coded but not tested
-- ~~autoexec_hook.so boot persistence needs on-camera verification~~ **CONFIRMED 2026-10-27 via real cold boot.** verify-after-boot.sh showed autoexec.log at 00:00:35 (clock reset to 1970), ritual_daemon pid 786, fresh ritual.log — hook fired at power-on with no manual trigger, launched the full stack. "Address in use"/"already running" in the log is the expected idempotent re-entry, not a fault.
+- autoexec_hook.so boot persistence needs on-camera verification (was ld.so.preload actually tested and confirmed working at boot?)
 - None of the new binaries (ritual_daemon, ritual_menu, arw_develop, etc.) have been confirmed running on camera yet — they're cross-compiled but need on-camera testing
 - Android partitions (nflasha16/17, 240MB) still unexplored
 
@@ -86,5 +88,4 @@
 - 2026-10-26: Thread "Launch homebrew apps from camera menu" - Researched GUI homebrew paths. Created handoff6400_v3.zip.
 - 2026-10-26: Thread "Dump a6400 storage for offline research" - Created dump guide, pushed to repo.
 - 2026-10-26: Thread "Review latest local homebrew progress" - Reviewed massive local build-out: full homebrew platform with LD_PRELOAD boot persistence, film lab daemon, terminal menu, mobile web UI, desktop wizard, SDK with 5 examples, 6 utility tools, full partition dumps, and comprehensive docs. Updated PROJECT_MEMORY.md.
-- 2026-10-27: Thread "Fix camera diagnostic script" - Rewrote check.sh (CRLF→LF, dropped missing applets head/od/killall/nice/awk/wc/cat -v, ps-based daemon cleanup), fixed nice in autoexec.sh, added verify-after-boot.sh. **Boot persistence CONFIRMED on real cold boot** — LD_PRELOAD hook fires at power-on and launches the full homebrew stack. Documented BusyBox limits in Findings.
-- 2026-10-28: Thread "Publish release and update README" - Consolidated all branch work (c0m90k diagnostic scripts + nyfguj hook binaries) into one branch. Wrote comprehensive README.md documenting confirmed capabilities, known limitations, hardware overview, boot persistence mechanism, and safety/recovery. Published GitHub release v0.1.0-alpha.
+- 2026-10-28: Thread "Add focus stacking bracketing" - Derived focus step key codes from firmware key table. Built focus_bracket.sh + probe_focus.sh + research doc. PR #7. Recheck fixed wrong key codes; camera test showed STEP_FOCUS keys ignored; switched to PC-remote FOCUS_DRIVE+ex_info path, which moves focus on camera. PR #7 merged.
