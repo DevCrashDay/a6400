@@ -5,6 +5,8 @@
 #define CMD_FILE "/tmp/gui.cmd"
 #define LOG_FILE "/tmp/gui.log"
 #define RITUAL_INI "/mnt/RITUAL.ini"
+#define RITUAL_INI_TMP "/tmp/RITUAL.ini"
+#define RITUAL_STATUS_FILE "/tmp/ritual_status.txt"
 
 /* Sony a6400 physical keycodes from Backup.bin & libObj.so */
 #define KEY_TACT_UP      0x0003u
@@ -353,7 +355,8 @@ static void load_ritual_ini(struct menu_state *m)
     m->stock_idx = 0;
     m->grain_idx = 2;
     m->halation = 1;
-    if (read_file(RITUAL_INI, buf, sizeof(buf)) <= 0)
+    if (read_file(RITUAL_INI_TMP, buf, sizeof(buf)) <= 0 &&
+        read_file(RITUAL_INI, buf, sizeof(buf)) <= 0)
         return;
     for (i = 0; i < NUM_STOCKS; i++) {
         if (find_substr(buf, STOCKS[i])) {
@@ -386,7 +389,20 @@ static void save_ritual_ini(struct menu_state *m)
                 STOCKS[m->stock_idx],
                 GRAINS[m->grain_idx],
                 m->halation ? "ON" : "OFF");
+    write_file(RITUAL_INI_TMP, buf, (size_t)n, 0);
     write_file(RITUAL_INI, buf, (size_t)n, 0);
+}
+
+static void ensure_ritual_daemon(void)
+{
+    const char *cmd =
+        "mount -t vfat /dev/mmca1 /mnt 2>/dev/null; "
+        "if ! pidof ritual_daemon >/dev/null 2>&1; then "
+        "  if [ -x /tmp/ritual_daemon ]; then /tmp/ritual_daemon >> /tmp/ritual.log 2>&1 & "
+        "  elif [ -x /mnt/ritual_daemon ]; then /mnt/ritual_daemon >> /tmp/ritual.log 2>&1 & "
+        "  fi; "
+        "fi";
+    spawn_sh(cmd, 0, NULL);
 }
 
 static const char *resolve_script(const char *tmp_path, const char *mnt_path, const char *sub_path)
@@ -453,10 +469,19 @@ static void execute_row(struct menu_state *m, int *osd_visible)
         break;
     }
     case 4:
-    case 5:
+    case 5: {
+        const char *rd = resolve_script("/tmp/ritual_daemon", "/mnt/ritual_daemon", "/mnt/a6400hb/bin/ritual_daemon");
         save_ritual_ini(m);
-        fmt(m->status, sizeof(m->status), "Saved %s (%s)", STOCKS[m->stock_idx], GRAINS[m->grain_idx]);
+        ensure_ritual_daemon();
+        if (sys_access(rd, 0) == 0) {
+            fmt(cmd, sizeof(cmd), "%s --latest >> /tmp/ritual.log 2>&1", rd);
+            spawn_sh(cmd, 0, NULL);
+            fmt(m->status, sizeof(m->status), "Applying %s (%s)...", STOCKS[m->stock_idx], GRAINS[m->grain_idx]);
+        } else {
+            fmt(m->status, sizeof(m->status), "Saved %s (%s)", STOCKS[m->stock_idx], GRAINS[m->grain_idx]);
+        }
         break;
+    }
     case 6: { /* 30-Min Rec Limit */
         const char *sh = resolve_script("/tmp/rec_unlimit.sh", "/mnt/rec_unlimit.sh", "/mnt/rec_unlimit/rec_unlimit.sh");
         if (sys_access(sh, 0) == 0) {
@@ -759,7 +784,9 @@ int main(int argc, char **argv, char **envp)
     memset(&m, 0, sizeof(m));
     m.bulb_idx = 1; /* 30s default */
     m.exit_mode = 1; /* Quit GUI default on Row 8 */
+    ensure_ritual_daemon();
     load_ritual_ini(&m);
+    save_ritual_ini(&m);
     fmt(m.status, sizeof(m.status), "Ready. C1:Hide/Show  C2(Trash):Quit");
 
     input_init(&ip);
@@ -773,6 +800,21 @@ int main(int argc, char **argv, char **envp)
         }
     }
 
+    char last_ritual_status[64];
+    int status_tick = 0;
+    last_ritual_status[0] = '\0';
+    {
+        char sbuf[128];
+        if (read_file(RITUAL_STATUS_FILE, sbuf, sizeof(sbuf)) > 0) {
+            int k = 0;
+            while (sbuf[k] && sbuf[k] != '\n' && sbuf[k] != '\r' && k < (int)sizeof(last_ritual_status) - 1) {
+                last_ritual_status[k] = sbuf[k];
+                k++;
+            }
+            last_ritual_status[k] = '\0';
+        }
+    }
+
     while (!g_stop) {
         enum nav_event ev = input_poll(&ip);
         int prev_bg = g_bg_pid;
@@ -780,6 +822,25 @@ int main(int argc, char **argv, char **envp)
         if (prev_bg > 0 && g_bg_pid == 0) {
             fmt(m.status, sizeof(m.status), "Task completed.");
             dirty = 1;
+        }
+
+        if (++status_tick >= 20) {
+            char sbuf[128];
+            status_tick = 0;
+            if (read_file(RITUAL_STATUS_FILE, sbuf, sizeof(sbuf)) > 0) {
+                char line[64];
+                int k = 0;
+                while (sbuf[k] && sbuf[k] != '\n' && sbuf[k] != '\r' && k < (int)sizeof(line) - 1) {
+                    line[k] = sbuf[k];
+                    k++;
+                }
+                line[k] = '\0';
+                if (line[0] != '\0' && strcmp(line, last_ritual_status) != 0) {
+                    fmt(last_ritual_status, sizeof(last_ritual_status), "%s", line);
+                    fmt(m.status, sizeof(m.status), "%s", line);
+                    dirty = 1;
+                }
+            }
         }
 
         if (ev == NAV_QUIT) {
