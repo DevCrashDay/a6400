@@ -13,16 +13,28 @@ the camera's InfraInput test hook. See
 -n 10 -d far` shot 10 frames with a small focus step between each, about
 12 s per frame. Run `probe_focus.sh` once on a new lens.
 
+## Copying to camera
+
+1. Camera: power on, **shooting mode**, USB mode Mass Storage.
+2. PC: start the service shell
+   (`pmca-console-v0.18-win.exe serviceshell` in your project folder).
+3. Push the four scripts (from the PMCA prompt, before `shell`):
+   ```
+   push focus_bracket\shutter.sh /tmp/shutter.sh
+   push focus_bracket\focus.sh /tmp/focus.sh
+   push focus_bracket\probe_focus.sh /tmp/probe_focus.sh
+   push focus_bracket\focus_bracket.sh /tmp/focus_bracket.sh
+   ```
+4. Enter the shell and make them executable:
+   ```
+   shell
+   chmod 755 /tmp/shutter.sh /tmp/focus.sh /tmp/probe_focus.sh /tmp/focus_bracket.sh
+   ```
+
 ## Setup
 
 - Focus mode **MF**, lens focused on the nearest point (or the farthest, for `-d near`)
 - M or A mode, Long Exposure NR **off**, tripod
-- Copy the four scripts to the camera with LF line endings:
-
-```sh
-cp shutter.sh focus.sh probe_focus.sh focus_bracket.sh /tmp/
-chmod +x /tmp/probe_focus.sh /tmp/focus_bracket.sh
-```
 
 ## 1. Probe (takes no pictures)
 
