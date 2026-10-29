@@ -31,10 +31,11 @@ if [ ! -e "$IN_PROC" ]; then
     IN_PROC="/proc/input"
 fi
 if [ -w "$IN_PROC" ]; then
-    echo table > "$IN_PROC" 2>/dev/null
+    echo "get 0x01ac" > "$IN_PROC" 2>/dev/null
+    echo "--- $IN_PROC (get 0x01ac [ENTER]) ---"
     cat "$IN_PROC" 2>/dev/null
-    echo get > "$IN_PROC" 2>/dev/null
-    echo "--- $IN_PROC (get mode) ---"
+    echo "get 0x01ab" > "$IN_PROC" 2>/dev/null
+    echo "--- $IN_PROC (get 0x01ab [MENU]) ---"
     cat "$IN_PROC" 2>/dev/null
 else
     echo "$IN_PROC not writable/present"

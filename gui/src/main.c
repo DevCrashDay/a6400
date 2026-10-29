@@ -109,10 +109,10 @@ struct input_poller {
 static void input_init(struct input_poller *ip)
 {
     memset(ip, 0, sizeof(*ip));
-    if (write_file("/proc/udm/input", "get\n", 4, 0) >= 0) {
+    if (write_file("/proc/udm/input", "get 0x01ac\n", 11, 0) >= 0) {
         ip->proc_path = "/proc/udm/input";
         ip->proc_ready = 1;
-    } else if (write_file("/proc/input", "get\n", 4, 0) >= 0) {
+    } else if (write_file("/proc/input", "get 0x01ac\n", 11, 0) >= 0) {
         ip->proc_path = "/proc/input";
         ip->proc_ready = 1;
     } else {
@@ -120,42 +120,29 @@ static void input_init(struct input_poller *ip)
     }
 }
 
-static enum nav_event map_keycode(u32 code)
-{
-    switch (code) {
-    case KEY_TACT_UP:
-    case KEY_TACT_UP_BI:
-    case KEY_TACT_DISP:
-        return NAV_UP;
-    case KEY_TACT_DOWN:
-    case KEY_TACT_DOWN_BI:
-        return NAV_DOWN;
-    case KEY_TACT_LEFT:
-    case KEY_TACT_LEFT_BI:
-    case KEY_KURU_LEFT:
-    case KEY_WHEEL_LEFT:
-        return NAV_LEFT;
-    case KEY_TACT_RIGHT:
-    case KEY_TACT_RIGHT_BI:
-    case KEY_KURU_RIGHT:
-    case KEY_WHEEL_RIGHT:
-        return NAV_RIGHT;
-    case KEY_TACT_ENTER:
-    case KEY_TACT_ENT_BI:
-        return NAV_ENTER;
-    case KEY_TACT_MENU:
-    case KEY_TACT_DELETE:
-        return NAV_BACK;
-    case KEY_TACT_CUSTOM:
-        return NAV_TOGGLE_OSD;
-    default:
-        return NAV_NONE;
-    }
-}
+static const struct {
+    u32 code;
+    const char *qstr;
+    size_t qlen;
+    enum nav_event ev;
+} POLL_KEYS[] = {
+    { KEY_TACT_UP,     "get 0x0003\n", 11, NAV_UP },
+    { KEY_TACT_DOWN,   "get 0x0030\n", 11, NAV_DOWN },
+    { KEY_TACT_LEFT,   "get 0x0015\n", 11, NAV_LEFT },
+    { KEY_TACT_RIGHT,  "get 0x01af\n", 11, NAV_RIGHT },
+    { KEY_TACT_ENTER,  "get 0x01ac\n", 11, NAV_ENTER },
+    { KEY_TACT_MENU,   "get 0x01ab\n", 11, NAV_BACK },
+    { KEY_TACT_CUSTOM, "get 0x0066\n", 11, NAV_TOGGLE_OSD },
+    { KEY_TACT_DELETE, "get 0x01f8\n", 11, NAV_BACK },
+};
+#define NUM_POLL_KEYS 8
 
 static enum nav_event input_poll(struct input_poller *ip)
 {
-    char buf[1024];
+    char buf[512];
+    int i;
+    u32 pressed_code = 0;
+    enum nav_event pressed_ev = NAV_NONE;
 
     /* 1. Check external control command file (/tmp/gui.cmd) */
     if (read_file(CMD_FILE, buf, sizeof(buf)) > 0) {
@@ -178,28 +165,44 @@ static enum nav_event input_poll(struct input_poller *ip)
             return NAV_QUIT;
     }
 
-    /* 2. Poll /proc/udm/input (or /proc/input) in "get" mode */
+    /* 2. Poll /proc/udm/input (or /proc/input) via "get 0xXXXX" per keycode.
+     * In input.ko, a key is released when subocde == 0x7fffffff, and pressed
+     * when subocde != 0x7fffffff && value != 0x7ffffffe. */
     if (!ip->proc_ready) {
         input_init(ip);
     }
-    if (ip->proc_ready && read_file(ip->proc_path, buf, sizeof(buf)) > 0) {
-        const char *kc = find_substr(buf, "keycode:");
-        const char *vl = find_substr(buf, "value:");
-        if (kc && vl) {
-            u32 code = parse_hex(kc + 8);
-            u32 val = parse_hex(vl + 6);
-            u32 now = now_ms();
-            if (val == 1 && (code != ip->last_keycode || ip->last_val == 0 || (now - ip->last_press_ms) > 250)) {
-                ip->last_keycode = code;
-                ip->last_val = val;
-                ip->last_press_ms = now;
-                return map_keycode(code);
+    if (ip->proc_ready) {
+        for (i = 0; i < NUM_POLL_KEYS; i++) {
+            if (write_file(ip->proc_path, POLL_KEYS[i].qstr, POLL_KEYS[i].qlen, 0) < 0)
+                break;
+            if (read_file(ip->proc_path, buf, sizeof(buf)) <= 0)
+                break;
+            {
+                const char *sc = find_substr(buf, "subocde:");
+                const char *vl = find_substr(buf, "value:");
+                if (!sc)
+                    sc = find_substr(buf, "subcode:");
+                if (sc && vl) {
+                    u32 subcode = parse_hex(sc + 8);
+                    u32 val = parse_hex(vl + 6);
+                    if (subcode != 0x7fffffffu && subcode != 0x7ffffffeu && val != 0x7ffffffeu) {
+                        pressed_code = POLL_KEYS[i].code;
+                        pressed_ev = POLL_KEYS[i].ev;
+                        break;
+                    }
+                }
             }
-            ip->last_keycode = code;
-            ip->last_val = val;
-        } else if (find_substr(buf, "KeyConfig")) {
-            /* proc entry reset to table mode; re-select get mode */
-            write_file(ip->proc_path, "get\n", 4, 0);
+        }
+        if (pressed_code != 0) {
+            u32 now = now_ms();
+            if (pressed_code != ip->last_keycode || ip->last_val == 0 || (now - ip->last_press_ms) > 250) {
+                ip->last_keycode = pressed_code;
+                ip->last_val = 1;
+                ip->last_press_ms = now;
+                return pressed_ev;
+            }
+        } else {
+            ip->last_val = 0;
         }
     }
 
@@ -648,9 +651,9 @@ static int cmd_info(const char *fb_dev)
     } else {
         printf("\n/proc/udm/input & /proc/input: unavailable\n");
     }
-    if (write_file(in_path, "get\n", 4, 0) >= 0 &&
+    if (write_file(in_path, "get 0x01ac\n", 11, 0) >= 0 &&
         read_file(in_path, buf, sizeof(buf)) > 0) {
-        printf("\n%s (get preview):\n%s\n", in_path, buf);
+        printf("\n%s (get 0x01ac [ENTER] preview):\n%s\n", in_path, buf);
     }
     return 0;
 }

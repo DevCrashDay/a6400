@@ -34,7 +34,7 @@ static u32 parse_u32_auto(const char **ps)
  *   1444 -> ARGB4444 (2B/px: A12..15, R8..11, G4..7, B0..3)
  *   32   -> ARGB8888 (4B/px)
  */
-static int fb_open_devmem(struct fb *f, u32 phys, u32 w, u32 h, u32 fmt_code, u32 stride, const char *tag, int writable)
+static int fb_open_devmem(struct fb *f, u32 phys, u32 phys2, u32 w, u32 h, u32 fmt_code, u32 stride, const char *tag, int writable)
 {
     int fl = writable ? O_RDWR : O_RDONLY;
     u32 page_off = phys & 0xFFFu;
@@ -49,7 +49,7 @@ static int fb_open_devmem(struct fb *f, u32 phys, u32 w, u32 h, u32 fmt_code, u3
 
     if (w == 0) w = 640;
     if (h == 0) h = 480;
-    if (fmt_code == 0) fmt_code = 32;
+    if (fmt_code == 0) fmt_code = 4444;
 
     if (fmt_code == 16) {
         f->bpp = 2;
@@ -101,22 +101,37 @@ static int fb_open_devmem(struct fb *f, u32 phys, u32 w, u32 h, u32 fmt_code, u3
     f->map_base = (u8 *)m;
     f->map = f->map_base + page_off;
     f->map_len = raw_len;
+
+    if (phys2 && phys2 != phys) {
+        u32 p2_off = phys2 & 0xFFFu;
+        u32 p2_phys = phys2 & ~0xFFFu;
+        size_t m2_len = (raw_len + p2_off + 0xFFFu) & ~(size_t)0xFFFu;
+        void *m2 = sys_mmap(NULL, m2_len, PROT_READ | (writable ? PROT_WRITE : 0),
+                            MAP_SHARED, f->fd, (long)(p2_phys >> 12));
+        if (!is_err((long)m2)) {
+            f->map2_base = (u8 *)m2;
+            f->map2 = f->map2_base + p2_off;
+            f->phys2 = phys2;
+        }
+    }
     return 0;
 }
 
-/* Search /proc/udm/ma_memspace_info for an allocated GUI/OSD memory space. */
-static int fb_probe_ma_memspace(u32 *out_phys, u32 *out_size, char *out_name, size_t name_cap)
+/* Search /proc/udm/ma_memspace_info for the monolithic OSD screen buffers
+ * (e.g. phys 0x23a80000 and 0x23b16000, size 0x00096000 = 640x480x16bpp RGBA4444). */
+static int fb_probe_ma_memspace(u32 *out_phys1, u32 *out_phys2, u32 *out_size, char *out_name, size_t name_cap)
 {
     char buf[4096];
     int n = read_file("/proc/udm/ma_memspace_info", buf, sizeof(buf) - 1);
     const char *p;
-    u32 best_phys = 0, best_size = 0;
-    char cur_name[16];
+    u32 mono_phys[4];
+    u32 mono_size[4];
+    int mono_cnt = 0;
+    u32 cur_phys = 0, cur_size = 0;
 
     if (n <= 0)
         return -1;
     buf[n] = 0;
-    cur_name[0] = 0;
 
     for (p = buf; *p; ) {
         const char *eol = strchr(p, '\n');
@@ -124,38 +139,27 @@ static int fb_probe_ma_memspace(u32 *out_phys, u32 *out_size, char *out_name, si
         const char *q = p;
         while (q < p + len && (*q == ' ' || *q == '\t'))
             q++;
-        if (strncmp(q, "name:", 5) == 0) {
-            size_t i = 0;
-            q += 5;
-            while (q < p + len && (*q == ' ' || *q == '\t'))
-                q++;
-            while (q < p + len && *q != '\r' && *q != '\n' && *q != ' ' && i + 1 < sizeof(cur_name))
-                cur_name[i++] = *q++;
-            cur_name[i] = 0;
+        if (strncmp(q, "[Memspace info]", 15) == 0) {
+            cur_phys = 0;
+            cur_size = 0;
         } else if (strncmp(q, "phys:", 5) == 0) {
-            u32 phys;
             q += 5;
             while (q < p + len && (*q == ' ' || *q == '\t'))
                 q++;
-            phys = parse_u32_auto(&q);
-            /* look ahead for size: on next line */
-            if (eol && eol[1]) {
-                const char *sline = eol + 1;
-                while (*sline == ' ' || *sline == '\t')
-                    sline++;
-                if (strncmp(sline, "size:", 5) == 0) {
-                    u32 sz;
-                    sline += 5;
-                    while (*sline == ' ' || *sline == '\t')
-                        sline++;
-                    sz = parse_u32_auto(&sline);
-                    if (phys != 0 && sz >= 0x40000u && (best_phys == 0 || sz > best_size)) {
-                        best_phys = phys;
-                        best_size = sz;
-                        if (out_name && name_cap)
-                            fmt(out_name, name_cap, "%s", cur_name[0] ? cur_name : "grm_ma");
-                    }
-                }
+            cur_phys = parse_u32_auto(&q);
+        } else if (strncmp(q, "size:", 5) == 0) {
+            q += 5;
+            while (q < p + len && (*q == ' ' || *q == '\t'))
+                q++;
+            cur_size = parse_u32_auto(&q);
+        } else if (strncmp(q, "type:", 5) == 0) {
+            q += 5;
+            while (q < p + len && (*q == ' ' || *q == '\t'))
+                q++;
+            if (strncmp(q, "monolithic", 10) == 0 && cur_phys != 0 && cur_size >= 0x40000u && mono_cnt < 4) {
+                mono_phys[mono_cnt] = cur_phys;
+                mono_size[mono_cnt] = cur_size;
+                mono_cnt++;
             }
         }
         if (!eol)
@@ -163,10 +167,25 @@ static int fb_probe_ma_memspace(u32 *out_phys, u32 *out_size, char *out_name, si
         p = eol + 1;
     }
 
-    if (best_phys == 0)
+    if (mono_cnt == 0)
         return -1;
-    *out_phys = best_phys;
-    *out_size = best_size;
+
+    if (mono_cnt >= 2 && mono_size[0] == mono_size[1]) {
+        if (mono_phys[0] <= mono_phys[1]) {
+            *out_phys1 = mono_phys[0];
+            *out_phys2 = mono_phys[1];
+        } else {
+            *out_phys1 = mono_phys[1];
+            *out_phys2 = mono_phys[0];
+        }
+        *out_size = mono_size[0];
+    } else {
+        *out_phys1 = mono_phys[0];
+        *out_phys2 = 0;
+        *out_size = mono_size[0];
+    }
+    if (out_name && name_cap)
+        fmt(out_name, name_cap, "osd_ma");
     return 0;
 }
 
@@ -185,7 +204,12 @@ int fb_open(struct fb *f, const char *dev, int writable)
     if (strncmp(dev, "/dev/mem@", 9) == 0) {
         const char *s = dev + 9;
         u32 phys = parse_u32_auto(&s);
-        u32 w = 640, h = 480, fmt_code = 32, stride = 0;
+        u32 phys2 = 0;
+        u32 w = 640, h = 480, fmt_code = 4444, stride = 0;
+        if (*s == '+') {
+            s++;
+            phys2 = parse_u32_auto(&s);
+        }
         if (*s == ':') {
             s++;
             w = parse_u32_auto(&s);
@@ -204,21 +228,22 @@ int fb_open(struct fb *f, const char *dev, int writable)
         }
         if (phys == 0)
             return -22; /* -EINVAL */
-        return fb_open_devmem(f, phys, w, h, fmt_code, stride, "devmem", writable);
+        return fb_open_devmem(f, phys, phys2, w, h, fmt_code, stride, "devmem", writable);
     }
 
     rc = sys_open(dev, fl, 0);
     if (rc < 0) {
         /* On Sony a6400, /dev/fb0 has no fbdev driver (-ENXIO = -6).
-         * Try auto-detecting the GUI memspace from /proc/udm/ma_memspace_info. */
-        u32 phys = 0, sz = 0;
+         * Auto-detect the double-buffered monolithic OSD surfaces from /proc/udm/ma_memspace_info. */
+        u32 phys1 = 0, phys2 = 0, sz = 0;
         char name[16];
-        if (fb_probe_ma_memspace(&phys, &sz, name, sizeof(name)) == 0) {
-            u32 w = 640, h = 480, fmt_code = 32;
+        if (fb_probe_ma_memspace(&phys1, &phys2, &sz, name, sizeof(name)) == 0) {
+            u32 w = 640, h = 480, fmt_code = 4444;
             if (sz == 640u * 480u * 2u) { w = 640; h = 480; fmt_code = 4444; }
+            else if (sz == 640u * 480u * 4u) { w = 640; h = 480; fmt_code = 32; }
             else if (sz == 960u * 480u * 2u) { w = 960; h = 480; fmt_code = 4444; }
             else if (sz == 960u * 480u * 4u) { w = 960; h = 480; fmt_code = 32; }
-            return fb_open_devmem(f, phys, w, h, fmt_code, 0, name, writable);
+            return fb_open_devmem(f, phys1, phys2, w, h, fmt_code, 0, name, writable);
         }
         return rc;
     }
@@ -257,15 +282,16 @@ int fb_open(struct fb *f, const char *dev, int writable)
 
 void fb_print_info(struct fb *f, int fd)
 {
-    fdprintf(fd, "fb: id='%s' phys=0x%08x res=%ux%u (virt %ux%u+%u+%u) bpp=%u (%uB) stride=%u smem=%u io=%s\n",
+    fdprintf(fd, "fb: id='%s' phys=0x%08x (phys2=0x%08x) res=%ux%u (virt %ux%u+%u+%u) bpp=%u (%uB) stride=%u smem=%u io=%s\n",
              f->fix.id,
              (u32)f->fix.smem_start,
+             f->phys2,
              f->var.xres, f->var.yres,
              f->var.xres_virtual, f->var.yres_virtual,
              f->var.xoffset, f->var.yoffset,
              f->var.bits_per_pixel, f->bpp,
              f->stride, f->fix.smem_len,
-             f->map ? "mmap" : "lseek+rw");
+             f->map ? (f->map2 ? "mmap(x2)" : "mmap") : "lseek+rw");
     fdprintf(fd, "fb: rgba=%u/%u,%u/%u,%u/%u,%u/%u\n",
              f->var.red.offset, f->var.red.length,
              f->var.green.offset, f->var.green.length,
@@ -295,6 +321,21 @@ int fb_read_rect(struct fb *f, u8 *dst)
     return 0;
 }
 
+static void fb_read_rect_map2(struct fb *f, u8 *dst)
+{
+    u32 r, row_bytes;
+    if (!dst || !f->map2 || f->rw == 0 || f->rh == 0)
+        return;
+    row_bytes = f->rw * f->bpp;
+    for (r = 0; r < f->rh; r++) {
+        size_t off = (size_t)(f->var.yoffset + f->ry + r) * f->stride +
+                     (size_t)(f->var.xoffset + f->rx) * f->bpp;
+        u8 *row_dst = dst + (size_t)r * row_bytes;
+        if (off + row_bytes <= f->map_len)
+            memcpy(row_dst, f->map2 + off, row_bytes);
+    }
+}
+
 int fb_claim(struct fb *f, u32 x, u32 y, u32 w, u32 h)
 {
     size_t sz;
@@ -305,6 +346,10 @@ int fb_claim(struct fb *f, u32 x, u32 y, u32 w, u32 h)
     if (f->saved) {
         xfree(f->saved, (size_t)f->rw * f->rh * f->bpp);
         f->saved = NULL;
+    }
+    if (f->saved2) {
+        xfree(f->saved2, (size_t)f->rw * f->rh * f->bpp);
+        f->saved2 = NULL;
     }
     f->have_saved = 0;
 
@@ -327,21 +372,29 @@ int fb_claim(struct fb *f, u32 x, u32 y, u32 w, u32 h)
     sz = (size_t)w * h * f->bpp;
     f->back = (u8 *)xalloc(sz);
     f->saved = (u8 *)xalloc(sz);
-    if (!f->back || !f->saved) {
+    if (f->map2)
+        f->saved2 = (u8 *)xalloc(sz);
+    if (!f->back || !f->saved || (f->map2 && !f->saved2)) {
         if (f->back)
             xfree(f->back, sz);
         if (f->saved)
             xfree(f->saved, sz);
-        f->back = f->saved = NULL;
+        if (f->saved2)
+            xfree(f->saved2, sz);
+        f->back = f->saved = f->saved2 = NULL;
         return -1;
     }
 
     if (fb_read_rect(f, f->saved) == 0) {
         f->have_saved = 1;
         memcpy(f->back, f->saved, sz);
+        if (f->map2 && f->saved2)
+            fb_read_rect_map2(f, f->saved2);
     } else {
         memset(f->saved, 0, sz);
         memset(f->back, 0, sz);
+        if (f->saved2)
+            memset(f->saved2, 0, sz);
     }
     return 0;
 }
@@ -358,6 +411,8 @@ int fb_present(struct fb *f)
         const u8 *row_src = f->back + (size_t)r * row_bytes;
         if (f->map && off + row_bytes <= f->map_len) {
             memcpy(f->map + off, row_src, row_bytes);
+            if (f->map2)
+                memcpy(f->map2 + off, row_src, row_bytes);
         } else {
             if (sys_lseek(f->fd, (long)off, 0) < 0)
                 return -1;
@@ -371,9 +426,21 @@ int fb_present(struct fb *f)
 void fb_restore(struct fb *f)
 {
     if (f->have_saved && f->saved && f->back) {
-        size_t sz = (size_t)f->rw * f->rh * f->bpp;
-        memcpy(f->back, f->saved, sz);
-        fb_present(f);
+        u32 r, row_bytes = f->rw * f->bpp;
+        if (f->map && f->map2 && f->saved2) {
+            for (r = 0; r < f->rh; r++) {
+                size_t off = (size_t)(f->var.yoffset + f->ry + r) * f->stride +
+                             (size_t)(f->var.xoffset + f->rx) * f->bpp;
+                if (off + row_bytes <= f->map_len) {
+                    memcpy(f->map + off, f->saved + (size_t)r * row_bytes, row_bytes);
+                    memcpy(f->map2 + off, f->saved2 + (size_t)r * row_bytes, row_bytes);
+                }
+            }
+        } else {
+            size_t sz = (size_t)f->rw * f->rh * f->bpp;
+            memcpy(f->back, f->saved, sz);
+            fb_present(f);
+        }
     }
 }
 
@@ -384,6 +451,13 @@ void fb_close(struct fb *f)
         xfree(f->back, sz);
     if (f->saved)
         xfree(f->saved, sz);
+    if (f->saved2)
+        xfree(f->saved2, sz);
+    if (f->map2_base && f->map_len) {
+        size_t page_off = (size_t)(f->map2 - f->map2_base);
+        size_t map_len = (f->map_len + page_off + 0xFFFu) & ~(size_t)0xFFFu;
+        sys_munmap(f->map2_base, map_len);
+    }
     if (f->map_base && f->map_len) {
         size_t page_off = (size_t)(f->map - f->map_base);
         size_t map_len = (f->map_len + page_off + 0xFFFu) & ~(size_t)0xFFFu;
