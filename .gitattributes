@@ -1,0 +1,6 @@
+# Keep camera shell scripts and build script as LF; never CRLF on checkout
+hook/autoexec.sh text eol=lf
+hook/build_autoexec_hook.py text eol=lf
+# Binaries: never touch
+hook/autoexec_hook.so binary
+hook/libAK8975.so binary
