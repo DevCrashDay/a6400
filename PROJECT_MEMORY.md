@@ -74,6 +74,9 @@
 - 2026-10-26: Camera has ~15,000 settings in Backup.bin (/setting/)
 - 2026-10-26: Button input passes through snd_InfraInputEvent_to_InputServant in libObj.so (PLT relocatable) — can be intercepted for custom menus
 - 2026-10-26: Live view driven by DMP SUGILITE hardware, /dev/dmpgles2, Guiengine_161H — no /dev/fb0. On-screen text can be intercepted via GEN_Label::setText / TextSprite. External HDMI recommended for video overlays.
+- 2026-10-28: libObj.so (Guiengine_161H, DDS display service: DdsUserDrawControl/DdsUserDisplayControl) references /dev/fb0 next to /dev/dmpgles2, so the earlier "no /dev/fb0" entry is unverified on camera. Check with `ls -l /dev | grep -iE 'fb|dmp'; cat /proc/fb`.
+- 2026-10-29: Physical button keycodes decoded from Backup.bin (BIN! block 0x1 at 0xc67f4) and libObj.so (0x13e18cc): UP=0x0003, DOWN=0x0030, LEFT=0x0015, RIGHT=0x01af, ENTER=0x01ac, MENU=0x01ab, FN=0x7095, C1(CUSTOM)=0x0066, C2(DELETE)=0x01f8, PLAY=0x01f7, REC=0x01f0.
+- 2026-10-28: Buttons: kmod/input.ko has no evdev; it sends keys over Sony OSAL IPC but also creates /proc/input (usage: table | get | adc | front | gpio | vgrip | multi_selector_soft). `echo table > /proc/input; cat /proc/input` should dump the key table.
 - 2026-10-26: Sony ARW files contain embedded JPEG preview within first 3MB — can be extracted by scanning for JPEG SOI/EOI markers
 
 ## Open Issues
@@ -85,6 +88,7 @@
 - Android partitions (nflasha16/17, 240MB) still unexplored
 
 ## Session Log
+- 2026-10-28: Thread "Show homebrew GUI on camera screen" (PR #8) - researched display (libObj/DMP/fb0) and input (/proc/input), and implemented freestanding ARMv7 GUI framework in gui/ (t.h, t.c, b.h, b.c, ont.h, main.c, 	ools/mkfont.py, probe_gui.sh, 6400_gui.elf).
 - 2026-10-26: Thread "Launch homebrew apps from camera menu" - Researched GUI homebrew paths. Created handoff6400_v3.zip.
 - 2026-10-26: Thread "Dump a6400 storage for offline research" - Created dump guide, pushed to repo.
 - 2026-10-26: Thread "Review latest local homebrew progress" - Reviewed massive local build-out: full homebrew platform with LD_PRELOAD boot persistence, film lab daemon, terminal menu, mobile web UI, desktop wizard, SDK with 5 examples, 6 utility tools, full partition dumps, and comprehensive docs. Updated PROJECT_MEMORY.md.
