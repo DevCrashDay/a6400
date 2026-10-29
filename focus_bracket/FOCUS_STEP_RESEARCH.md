@@ -130,6 +130,7 @@ action.
 
 ## Open questions (need the camera)
 
-1. Does FOCUS_DRIVE with a non-zero `ex_info` move the lens? (`probe_focus.sh`)
+1. ~~Does FOCUS_DRIVE with a non-zero `ex_info` move the lens?~~ Yes:
+   confirmed 2026-10-29 on the SEL18135 with steps 7 and 1.
 2. Is the sign right (negative = near)?
 3. How far does one small step move the SEL18135, so how many per frame?

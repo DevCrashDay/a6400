@@ -9,8 +9,8 @@ It injects the same focus Near/Far key the camera's USB PC remote uses
 the camera's InfraInput test hook. See
 [FOCUS_STEP_RESEARCH.md](FOCUS_STEP_RESEARCH.md).
 
-**Status:** shutter keys confirmed on camera (2026-10-29). The focus path
-is new and untested: run `probe_focus.sh` first.
+**Status:** shutter keys and focus moves confirmed on camera (2026-10-29,
+SEL18135). Run `probe_focus.sh` once on a new lens.
 
 ## Setup
 
