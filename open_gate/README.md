@@ -93,6 +93,14 @@ chmod +x /tmp/dump_ram_to_sd.sh
 /tmp/dump_ram_to_sd.sh --core
 ```
 
+**Dump result (2026-10-29):** the three warm-boot regions dumped fine
+(67 MB). None contains the format strings, `ImagerDriveMode`, or any other
+`av-cam.bin` string. 0x20028000 is the app log ring (`[MWF]`, `[AVIMMGR]` ...),
+0x10000000 is lookup tables, and 0x20200000 is 98% zero plus pixel-like data.
+`--core` (0x80000000) rebooted the camera: that block is protected, like
+physical 0-1 MB. So the camera core runs in memory Linux can't read, which
+rules out patching it from Linux.
+
 ## What the step 1 result decided
 
 - **No `/dev/mem` and no large shared region:** the camera image can't be
