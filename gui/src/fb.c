@@ -1,19 +1,228 @@
 #include "fb.h"
 #include "font.h"
 
+static u32 parse_u32_auto(const char **ps)
+{
+    const char *s = *ps;
+    u32 v = 0;
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+        s += 2;
+        while (*s) {
+            char c = *s;
+            u32 d;
+            if (c >= '0' && c <= '9') d = (u32)(c - '0');
+            else if (c >= 'a' && c <= 'f') d = (u32)(c - 'a' + 10);
+            else if (c >= 'A' && c <= 'F') d = (u32)(c - 'A' + 10);
+            else break;
+            v = (v << 4) | d;
+            s++;
+        }
+    } else {
+        while (*s >= '0' && *s <= '9') {
+            v = v * 10u + (u32)(*s - '0');
+            s++;
+        }
+    }
+    *ps = s;
+    return v;
+}
+
+/* Open a physical framebuffer region via /dev/mem.
+ * fmt_code:
+ *   16   -> RGB565 (2B/px)
+ *   4444 -> RGBA4444 (2B/px: R12..15, G8..11, B4..7, A0..3)
+ *   1444 -> ARGB4444 (2B/px: A12..15, R8..11, G4..7, B0..3)
+ *   32   -> ARGB8888 (4B/px)
+ */
+static int fb_open_devmem(struct fb *f, u32 phys, u32 w, u32 h, u32 fmt_code, u32 stride, const char *tag, int writable)
+{
+    int fl = writable ? O_RDWR : O_RDONLY;
+    u32 page_off = phys & 0xFFFu;
+    u32 page_phys = phys & ~0xFFFu;
+    size_t raw_len, map_len;
+    void *m;
+
+    memset(f, 0, sizeof(*f));
+    f->fd = sys_open("/dev/mem", fl, 0);
+    if (f->fd < 0)
+        return f->fd;
+
+    if (w == 0) w = 640;
+    if (h == 0) h = 480;
+    if (fmt_code == 0) fmt_code = 32;
+
+    if (fmt_code == 16) {
+        f->bpp = 2;
+        f->var.bits_per_pixel = 16;
+        f->var.red.offset = 11;   f->var.red.length = 5;
+        f->var.green.offset = 5;  f->var.green.length = 6;
+        f->var.blue.offset = 0;   f->var.blue.length = 5;
+    } else if (fmt_code == 4444) {
+        f->bpp = 2;
+        f->var.bits_per_pixel = 16;
+        f->var.red.offset = 12;    f->var.red.length = 4;
+        f->var.green.offset = 8;   f->var.green.length = 4;
+        f->var.blue.offset = 4;    f->var.blue.length = 4;
+        f->var.transp.offset = 0;  f->var.transp.length = 4;
+    } else if (fmt_code == 1444) {
+        f->bpp = 2;
+        f->var.bits_per_pixel = 16;
+        f->var.transp.offset = 12; f->var.transp.length = 4;
+        f->var.red.offset = 8;     f->var.red.length = 4;
+        f->var.green.offset = 4;   f->var.green.length = 4;
+        f->var.blue.offset = 0;    f->var.blue.length = 4;
+    } else {
+        f->bpp = 4;
+        f->var.bits_per_pixel = 32;
+        f->var.transp.offset = 24; f->var.transp.length = 8;
+        f->var.red.offset = 16;    f->var.red.length = 8;
+        f->var.green.offset = 8;   f->var.green.length = 8;
+        f->var.blue.offset = 0;    f->var.blue.length = 8;
+    }
+
+    f->var.xres = f->var.xres_virtual = w;
+    f->var.yres = f->var.yres_virtual = h;
+    f->stride = stride ? stride : w * f->bpp;
+    f->fix.line_length = f->stride;
+    f->fix.smem_start = phys;
+    raw_len = (size_t)f->stride * h;
+    f->fix.smem_len = (u32)raw_len;
+    fmt(f->fix.id, sizeof(f->fix.id), "%s", tag ? tag : "devmem");
+
+    map_len = (raw_len + page_off + 0xFFFu) & ~(size_t)0xFFFu;
+    m = sys_mmap(NULL, map_len, PROT_READ | (writable ? PROT_WRITE : 0),
+                 MAP_SHARED, f->fd, (long)(page_phys >> 12));
+    if (is_err((long)m)) {
+        int err = (int)(long)m;
+        sys_close(f->fd);
+        f->fd = -1;
+        return err;
+    }
+    f->map_base = (u8 *)m;
+    f->map = f->map_base + page_off;
+    f->map_len = raw_len;
+    return 0;
+}
+
+/* Search /proc/udm/ma_memspace_info for an allocated GUI/OSD memory space. */
+static int fb_probe_ma_memspace(u32 *out_phys, u32 *out_size, char *out_name, size_t name_cap)
+{
+    char buf[4096];
+    int n = read_file("/proc/udm/ma_memspace_info", buf, sizeof(buf) - 1);
+    const char *p;
+    u32 best_phys = 0, best_size = 0;
+    char cur_name[16];
+
+    if (n <= 0)
+        return -1;
+    buf[n] = 0;
+    cur_name[0] = 0;
+
+    for (p = buf; *p; ) {
+        const char *eol = strchr(p, '\n');
+        size_t len = eol ? (size_t)(eol - p) : strlen(p);
+        const char *q = p;
+        while (q < p + len && (*q == ' ' || *q == '\t'))
+            q++;
+        if (strncmp(q, "name:", 5) == 0) {
+            size_t i = 0;
+            q += 5;
+            while (q < p + len && (*q == ' ' || *q == '\t'))
+                q++;
+            while (q < p + len && *q != '\r' && *q != '\n' && *q != ' ' && i + 1 < sizeof(cur_name))
+                cur_name[i++] = *q++;
+            cur_name[i] = 0;
+        } else if (strncmp(q, "phys:", 5) == 0) {
+            u32 phys;
+            q += 5;
+            while (q < p + len && (*q == ' ' || *q == '\t'))
+                q++;
+            phys = parse_u32_auto(&q);
+            /* look ahead for size: on next line */
+            if (eol && eol[1]) {
+                const char *sline = eol + 1;
+                while (*sline == ' ' || *sline == '\t')
+                    sline++;
+                if (strncmp(sline, "size:", 5) == 0) {
+                    u32 sz;
+                    sline += 5;
+                    while (*sline == ' ' || *sline == '\t')
+                        sline++;
+                    sz = parse_u32_auto(&sline);
+                    if (phys != 0 && sz >= 0x40000u && (best_phys == 0 || sz > best_size)) {
+                        best_phys = phys;
+                        best_size = sz;
+                        if (out_name && name_cap)
+                            fmt(out_name, name_cap, "%s", cur_name[0] ? cur_name : "grm_ma");
+                    }
+                }
+            }
+        }
+        if (!eol)
+            break;
+        p = eol + 1;
+    }
+
+    if (best_phys == 0)
+        return -1;
+    *out_phys = best_phys;
+    *out_size = best_size;
+    return 0;
+}
+
 int fb_open(struct fb *f, const char *dev, int writable)
 {
     void *m;
     int fl = writable ? O_RDWR : O_RDONLY;
+    int rc;
 
     memset(f, 0, sizeof(*f));
     f->fd = -1;
     if (!dev || !*dev)
         dev = "/dev/fb0";
 
-    f->fd = sys_open(dev, fl, 0);
-    if (f->fd < 0)
-        return f->fd;
+    /* Explicit /dev/mem@0xPHYS[:WxHxFMT[:STRIDE]] specification */
+    if (strncmp(dev, "/dev/mem@", 9) == 0) {
+        const char *s = dev + 9;
+        u32 phys = parse_u32_auto(&s);
+        u32 w = 640, h = 480, fmt_code = 32, stride = 0;
+        if (*s == ':') {
+            s++;
+            w = parse_u32_auto(&s);
+            if (*s == 'x' || *s == 'X') {
+                s++;
+                h = parse_u32_auto(&s);
+            }
+            if (*s == 'x' || *s == 'X') {
+                s++;
+                fmt_code = parse_u32_auto(&s);
+            }
+            if (*s == ':') {
+                s++;
+                stride = parse_u32_auto(&s);
+            }
+        }
+        if (phys == 0)
+            return -22; /* -EINVAL */
+        return fb_open_devmem(f, phys, w, h, fmt_code, stride, "devmem", writable);
+    }
+
+    rc = sys_open(dev, fl, 0);
+    if (rc < 0) {
+        /* On Sony a6400, /dev/fb0 has no fbdev driver (-ENXIO = -6).
+         * Try auto-detecting the GUI memspace from /proc/udm/ma_memspace_info. */
+        u32 phys = 0, sz = 0;
+        char name[16];
+        if (fb_probe_ma_memspace(&phys, &sz, name, sizeof(name)) == 0) {
+            u32 w = 640, h = 480, fmt_code = 32;
+            if (sz == 640u * 480u * 2u) { w = 640; h = 480; fmt_code = 4444; }
+            else if (sz == 960u * 480u * 2u) { w = 960; h = 480; fmt_code = 4444; }
+            else if (sz == 960u * 480u * 4u) { w = 960; h = 480; fmt_code = 32; }
+            return fb_open_devmem(f, phys, w, h, fmt_code, 0, name, writable);
+        }
+        return rc;
+    }
+    f->fd = rc;
 
     if (sys_ioctl(f->fd, FBIOGET_VSCREENINFO, &f->var) < 0 ||
         sys_ioctl(f->fd, FBIOGET_FSCREENINFO, &f->fix) < 0) {
@@ -35,18 +244,22 @@ int fb_open(struct fb *f, const char *dev, int writable)
                                  : f->stride * (f->var.yres_virtual ? f->var.yres_virtual : f->var.yres);
 
     m = sys_mmap(NULL, f->map_len, PROT_READ | (writable ? PROT_WRITE : 0), MAP_SHARED, f->fd, 0);
-    if (!is_err((long)m))
-        f->map = (u8 *)m;
-    else
+    if (!is_err((long)m)) {
+        f->map_base = (u8 *)m;
+        f->map = f->map_base;
+    } else {
+        f->map_base = NULL;
         f->map = NULL;
+    }
 
     return 0;
 }
 
 void fb_print_info(struct fb *f, int fd)
 {
-    fdprintf(fd, "fb: id='%s' res=%ux%u (virt %ux%u+%u+%u) bpp=%u (%uB) stride=%u smem=%u io=%s\n",
+    fdprintf(fd, "fb: id='%s' phys=0x%08x res=%ux%u (virt %ux%u+%u+%u) bpp=%u (%uB) stride=%u smem=%u io=%s\n",
              f->fix.id,
+             (u32)f->fix.smem_start,
              f->var.xres, f->var.yres,
              f->var.xres_virtual, f->var.yres_virtual,
              f->var.xoffset, f->var.yoffset,
@@ -171,8 +384,13 @@ void fb_close(struct fb *f)
         xfree(f->back, sz);
     if (f->saved)
         xfree(f->saved, sz);
-    if (f->map && f->map_len)
+    if (f->map_base && f->map_len) {
+        size_t page_off = (size_t)(f->map - f->map_base);
+        size_t map_len = (f->map_len + page_off + 0xFFFu) & ~(size_t)0xFFFu;
+        sys_munmap(f->map_base, map_len);
+    } else if (f->map && f->map_len) {
         sys_munmap(f->map, f->map_len);
+    }
     if (f->fd >= 0)
         sys_close(f->fd);
     memset(f, 0, sizeof(*f));

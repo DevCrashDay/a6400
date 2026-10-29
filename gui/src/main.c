@@ -96,9 +96,10 @@ static u32 parse_hex(const char *s)
     return v;
 }
 
-/* ---- Input polling (/proc/input + /tmp/gui.cmd) ---- */
+/* ---- Input polling (/proc/udm/input + /proc/input + /tmp/gui.cmd) ---- */
 
 struct input_poller {
+    const char *proc_path;
     int proc_ready;
     u32 last_keycode;
     u32 last_val;
@@ -108,8 +109,15 @@ struct input_poller {
 static void input_init(struct input_poller *ip)
 {
     memset(ip, 0, sizeof(*ip));
-    if (write_file("/proc/input", "get\n", 4, 0) >= 0)
+    if (write_file("/proc/udm/input", "get\n", 4, 0) >= 0) {
+        ip->proc_path = "/proc/udm/input";
         ip->proc_ready = 1;
+    } else if (write_file("/proc/input", "get\n", 4, 0) >= 0) {
+        ip->proc_path = "/proc/input";
+        ip->proc_ready = 1;
+    } else {
+        ip->proc_path = "/proc/udm/input";
+    }
 }
 
 static enum nav_event map_keycode(u32 code)
@@ -170,12 +178,11 @@ static enum nav_event input_poll(struct input_poller *ip)
             return NAV_QUIT;
     }
 
-    /* 2. Poll /proc/input (in "get" mode) */
+    /* 2. Poll /proc/udm/input (or /proc/input) in "get" mode */
     if (!ip->proc_ready) {
-        if (write_file("/proc/input", "get\n", 4, 0) >= 0)
-            ip->proc_ready = 1;
+        input_init(ip);
     }
-    if (ip->proc_ready && read_file("/proc/input", buf, sizeof(buf)) > 0) {
+    if (ip->proc_ready && read_file(ip->proc_path, buf, sizeof(buf)) > 0) {
         const char *kc = find_substr(buf, "keycode:");
         const char *vl = find_substr(buf, "value:");
         if (kc && vl) {
@@ -191,8 +198,8 @@ static enum nav_event input_poll(struct input_poller *ip)
             ip->last_keycode = code;
             ip->last_val = val;
         } else if (find_substr(buf, "KeyConfig")) {
-            /* /proc/input reset to table mode; re-select get mode */
-            write_file("/proc/input", "get\n", 4, 0);
+            /* proc entry reset to table mode; re-select get mode */
+            write_file(ip->proc_path, "get\n", 4, 0);
         }
     }
 
@@ -607,7 +614,9 @@ static void render_menu(struct fb *f, const struct menu_state *m)
 static int cmd_info(const char *fb_dev)
 {
     struct fb f;
-    char buf[2048];
+    char buf[4096];
+    int rc;
+    const char *in_path = "/proc/udm/input";
 
     printf("=== Sony a6400 GUI / Display / Input Probe ===\n");
     if (read_file("/proc/fb", buf, sizeof(buf)) > 0)
@@ -615,18 +624,33 @@ static int cmd_info(const char *fb_dev)
     else
         printf("/proc/fb: (empty or unavailable)\n");
 
-    if (fb_open(&f, fb_dev, 0) == 0) {
+    if (read_file("/proc/udm/ma_memspace_info", buf, sizeof(buf)) > 0)
+        printf("\n/proc/udm/ma_memspace_info:\n%s\n", buf);
+    else
+        printf("\n/proc/udm/ma_memspace_info: unavailable\n");
+
+    if (read_file("/proc/udm/dmm_extents", buf, sizeof(buf)) > 0)
+        printf("\n/proc/udm/dmm_extents (preview):\n%s\n", buf);
+
+    rc = fb_open(&f, fb_dev, 0);
+    if (rc == 0) {
         fb_print_info(&f, 1);
         fb_close(&f);
     } else {
-        printf("fb_open(%s) failed (errno-like rc=%d)\n", fb_dev ? fb_dev : "/dev/fb0", f.fd);
+        printf("fb_open(%s) failed (errno-like rc=%d)\n", fb_dev ? fb_dev : "/dev/fb0", rc);
     }
 
-    if (write_file("/proc/input", "table\n", 6, 0) >= 0 &&
-        read_file("/proc/input", buf, sizeof(buf)) > 0) {
-        printf("\n/proc/input (table preview):\n%s\n", buf);
+    if (write_file(in_path, "table\n", 6, 0) < 0)
+        in_path = "/proc/input";
+    if (write_file(in_path, "table\n", 6, 0) >= 0 &&
+        read_file(in_path, buf, sizeof(buf)) > 0) {
+        printf("\n%s (table preview):\n%s\n", in_path, buf);
     } else {
-        printf("\n/proc/input: unavailable\n");
+        printf("\n/proc/udm/input & /proc/input: unavailable\n");
+    }
+    if (write_file(in_path, "get\n", 4, 0) >= 0 &&
+        read_file(in_path, buf, sizeof(buf)) > 0) {
+        printf("\n%s (get preview):\n%s\n", in_path, buf);
     }
     return 0;
 }

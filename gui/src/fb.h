@@ -35,7 +35,8 @@ struct fb_fix_screeninfo {
  * are kept in `saved` so they can be put back on exit. */
 struct fb {
     int fd;
-    u8 *map; /* NULL if mmap failed: we fall back to lseek+write */
+    u8 *map;      /* pointer to start of framebuffer pixels */
+    u8 *map_base; /* page-aligned base passed to sys_munmap */
     size_t map_len;
     struct fb_var_screeninfo var;
     struct fb_fix_screeninfo fix;
