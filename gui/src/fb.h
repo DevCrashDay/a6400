@@ -35,15 +35,19 @@ struct fb_fix_screeninfo {
  * are kept in `saved` so they can be put back on exit. */
 struct fb {
     int fd;
-    u8 *map; /* NULL if mmap failed: we fall back to lseek+write */
+    u8 *map;       /* pointer to start of primary framebuffer pixels */
+    u8 *map_base;  /* page-aligned base passed to sys_munmap */
     size_t map_len;
+    u8 *map2;      /* optional second double-buffer mapping (e.g. 0x23b16000) */
+    u8 *map2_base;
+    u32 phys2;
     struct fb_var_screeninfo var;
     struct fb_fix_screeninfo fix;
     u32 bpp; /* bytes per pixel */
     u32 stride;
     /* owned rectangle (visible-screen coordinates) */
     u32 rx, ry, rw, rh;
-    u8 *back, *saved;
+    u8 *back, *saved, *saved2;
     int have_saved;
 };
 
