@@ -35,16 +35,21 @@ struct fb_fix_screeninfo {
  * are kept in `saved` so they can be put back on exit. */
 struct fb {
     int fd;
-    u8 *map; /* NULL if mmap failed: we fall back to lseek+write */
+    u8 *map;       /* pointer to start of primary framebuffer pixels */
+    u8 *map_base;  /* page-aligned base passed to sys_munmap */
     size_t map_len;
+    u8 *map2;      /* optional second double-buffer mapping (e.g. 0x23b16000) */
+    u8 *map2_base;
+    u32 phys2;
     struct fb_var_screeninfo var;
     struct fb_fix_screeninfo fix;
     u32 bpp; /* bytes per pixel */
     u32 stride;
     /* owned rectangle (visible-screen coordinates) */
     u32 rx, ry, rw, rh;
-    u8 *back, *saved;
+    u8 *back, *saved, *saved2;
     int have_saved;
+    char src[64];  /* how the surface was chosen, for logs */
 };
 
 int fb_open(struct fb *f, const char *dev, int writable);
@@ -53,9 +58,11 @@ int fb_claim(struct fb *f, u32 x, u32 y, u32 w, u32 h);
 int fb_read_rect(struct fb *f, u8 *dst);
 int fb_present(struct fb *f);
 void fb_restore(struct fb *f);
+void fb_clear_claimed(struct fb *f);
 void fb_close(struct fb *f);
 
 u32 fb_rgb(struct fb *f, u8 r, u8 g, u8 b);
+u32 fb_rgba(struct fb *f, u8 r, u8 g, u8 b, u8 a);
 void gfx_fill(struct fb *f, int x, int y, int w, int h, u32 px);
 void gfx_frame(struct fb *f, int x, int y, int w, int h, int t, u32 px);
 int gfx_text(struct fb *f, int x, int y, const char *s, u32 fg, int scale, int maxw);

@@ -1,0 +1,138 @@
+
+==== kernel ====
+Linux (none) 3.0.27_nl-rt106+ #1 SMP PREEMPT RT Mon May 27 14:09:40 JST 2019 armv7l unknown
+ ramdisk_size=8192 rw noatime noalign lpj=1757184 page_alloc.minkb=128 page_alloc.lokb=1024 page_alloc.hikb=1280 heap_profile.records=0 snsc_workqueue.kipid=130 manage.irqd=129 softirq.sirqd=128 adrs_conv.debug=1 adrs_conv.null=Y exception.reboot=1 exception.console_option=115200n8 wdt.timeout=500 warm.mode=2 warm.tmo=100000 warm.resume_drop=0 warm.boot_drop=0 warm.ignore_drop=1 basic.prof_path=/log/ssbi_prof.bin cache_l2x0.wait=3 snsc_boot_time.us=Y cfg.uart=9 error.led=0,0 cfg.poff=10,5 cmpr.path=/system/sabin/ssboot.bin cmpr.path2=/system/sabin/ssboot_any.bin cgroup_disable=memory console=ttynull xrstreq=1 wdt.mode=1 stack_usage=n cxd900x0.bam=N mmu.dac=Y exec.coremode=1 ip=off tmonitor.addr=0xF00000 tmonitor.size=0x8000 tmonitor.mask=0 rootfstype=ext2 root=/dev/ram0 init=/sbin/init initrd=0x700000,8M pm.resume=0x20021054 pm.sus_error=0x20021060 pm.ddr_ctrl=sref pm.ddr_ctrl2=sref pm.pasr1=0xff pm.pasr2=0xff pm.pasr3=0xff wbi_memclr=0x200210e8 em_console=0x200210ec wbimem=0x1000@0x20021000 wbimem=0xEC000@0x20028000 wbimem=0x8000@0x20145000 wbimem=0x500000@0x03085000 wbimem=0x96D000@0x10000000 wbimem=0x3916000@0x20200000 wbimem=0x200000@0x23E00000 cmpr.mem=0x8000@0x14000000 warm.mem_dst=0xC00000@0x14100000 warm.mem_work=0x600000@0x14D00000 wbi_cmpr.waddr=0x69A00000 wbi_cmpr.wsize=0x100000 wbi_cmpr.nbuf=12 boottime=0x20000@0x03585000 klog.addr=0x035A5000 klog.size=0x20000 alog.addr=0x03524FC0 alog.size=0x60040 alog.clock=cpu mem=1G@0 memrsv=1M@0 memrsv=0x8000@0xF00000 memrsv=0x1A5E000@0x02E68000 memrsv=0xA6EB000@0x09915000 memrsv=704M@0x14000000:uc mem=256M@0x80000000@1 memrsv=14M@0x80000000:uc memrsv=242M@0x80e00000:uc
+
+==== /proc/iomem (physical address map) ====
+00000000-3fffffff : System RAM
+  00108000-0048d023 : Kernel text
+  004bc000-0051f613 : Kernel data
+80000000-8fffffff : System RAM
+f0200000-f02fffff : dwc3.0
+  f020c100-f02fffff : dwc3.0
+f2000000-f2000fff : uart0
+  f2000000-f2000fff : cxd900x0-uart
+f2003000-f2003fff : uart3
+  f2003000-f2003fff : cxd900x0-uart
+
+==== memory device nodes ====
+crw-r-----    1 0        9          1,   2 Aug  6  2012 /dev/kmem
+crw-r-----    1 0        9          1,   1 Aug  6  2012 /dev/mem
+crw-r-----    1 0        9          1,   4 Aug  6  2012 /dev/port
+  1 mem
+251 ldec
+251 dmac
+251 uipc
+
+==== /proc/meminfo ====
+MemTotal:         112544 kB
+MemFree:           11756 kB
+Buffers:            1436 kB
+Cached:            47008 kB
+SwapCached:            0 kB
+Active:            35004 kB
+Inactive:          46116 kB
+Active(anon):      32672 kB
+Inactive(anon):        0 kB
+Active(file):       2332 kB
+Inactive(file):    46116 kB
+Unevictable:           0 kB
+Mlocked:               0 kB
+SwapTotal:             0 kB
+SwapFree:              0 kB
+Dirty:                12 kB
+Writeback:            40 kB
+AnonPages:         32692 kB
+Mapped:            19284 kB
+Shmem:                 0 kB
+Slab:               7636 kB
+SReclaimable:        988 kB
+SUnreclaim:         6648 kB
+KernelStack:        3384 kB
+PageTables:         1136 kB
+NFS_Unstable:          0 kB
+Bounce:                0 kB
+WritebackTmp:          0 kB
+CommitLimit:       56272 kB
+Committed_AS:     421964 kB
+VmallocTotal:    1032192 kB
+VmallocUsed:        1600 kB
+VmallocChunk:    1028424 kB
+
+==== loaded modules ====
+devno 2161 23 usbg_stillimage,usbg_storage,cec,hdmi,usb_buspwr,usb_darwin,usbg_buspower,dma330,mmc_drv,ms_drv,mcmn_drv,grm_gles,kikilog,usb_extcmd,usbg_sen,usb_portMonitor,stream2,stream,backup,osal_uipc,emmc,ldec,dmac, Live 0x5f000000 (P)
+dmac 12832 3 liro,emmc,ldec, Live 0x5f004000 (P)
+ldec 10474 1 emmc, Live 0x5f00b000 (P)
+emmc 175459 11 - Live 0x5f011000 (P)
+osal_utm 2139 16 cec,hdmi,liro,codec_drv,ms_drv,mcmn_drv,accel,nfc,upm,dmm,kikilog,usb_portMonitor,i2c,osal_ulogio,utimer,osal_uipc, Live 0x5f043000 (P)
+osal_uipc 37305 33 usbg_stillimage,usbg_storage,cec,hdmi,usb_buspwr,usb_darwin,usbg_buspower,liro,codec_drv,dma330,mmc_drv,ms_drv,mcmn_drv,compass,mag,accel,grm_gles,grm_ma,nfc,upm,dmm,kikilog,usbg_sen,usb_portMonitor,sircs,i2c,indctr,udate,input,osal_ulogio,backup,utimer, Live 0x5f047000 (P)
+utimer 21490 0 - Live 0x5f055000 (P)
+backup 61137 17 hdmi,usb_buspwr,usb_darwin,liro,mcmn_drv,mag,accel,nfc,upm,dmm,usbg_sen,usb_portMonitor,i2c,indctr,udate,input,osal_ulogio, Live 0x5f05e000 (P)
+osal_ulogio 29951 0 - Live 0x5f071000 (P)
+input 22826 0 - Live 0x5f07d000 (P)
+udate 9116 0 - Live 0x5f087000 (P)
+indctr 7911 0 - Live 0x5f08d000 (P)
+i2c 10297 0 - Live 0x5f092000 (P)
+sircs 15346 0 - Live 0x5f098000 (P)
+stream 1077 9 - Live 0x5f0a0000 (P)
+stream2 1629 3 - Live 0x5f0a4000 (P)
+usb_portMonitor 11648 0 - Live 0x5f0a8000 (P)
+usbg_sen 30337 1 - Live 0x5f0ae000 (P)
+usb_extcmd 9511 0 - Live 0x5f0ba000 (P)
+kikilog 25020 1 - Live 0x5f0c0000 (P)
+dmm 3148818 2 liro,upm, Live 0x5f0cb000 (P)
+upm 110207 0 - Live 0x5f3d1000 (P)
+nfc 10038 0 - Live 0x5f3f2000 (P)
+grm_ma 20020 0 - Live 0x5f3f8000 (P)
+grm_gles 9688 2 - Live 0x5f400000 (P)
+accel 9024 0 - Live 0x5f406000 (P)
+mag 6757 0 - Live 0x5f40c000 (P)
+compass 2734 0 - Live 0x5f411000 (P)
+mcmn_drv 91324 2 mmc_drv,ms_drv, Live 0x5f415000 (P)
+ms_drv 162876 0 - Live 0x5f431000 (P)
+usbg_stillimage 19213 0 - Live 0x5f45a000 (P)
+mmc_drv 185274 3 - Live 0x5f462000 (P)
+dma330 251055 1 liro, Live 0x5f49a000 (P)
+codec_drv 12800 0 - Live 0x5f4db000 (P)
+liro 51484 0 - Live 0x5f4e2000 (P)
+usbg_buspower 9293 0 - Live 0x5f4f5000 (P)
+usb_darwin 21440 1 usb_buspwr, Live 0x5f4fb000 (P)
+usb_buspwr 8195 1 - Live 0x5f504000 (P)
+hdmi 154591 4 cec, Live 0x5f50a000 (P)
+cec 53250 3 - Live 0x5f53e000 (P)
+wlanMemoryAllocator 3629 0 - Live 0x5f554000 (P)
+usbg_storage 53865 0 - Live 0x5f556000 (P)
+
+==== device mappings in running processes ====
+-- pid 152: 
+04071000-04076000 rw-s 20028000 fc:07 136        /dev/mem
+040bf000-040c7000 rw-s 034fd000 fc:07 136        /dev/mem
+040d1000-040d5000 rw-s f1000000 fc:07 136        /dev/mem
+040f1000-040f4000 -w-s 03103000 fc:07 136        /dev/mem
+0433a000-0443a000 rw-s 08800000 fc:07 223        /dev/uipc
+0443a000-0443b000 rw-s 1096b000 fc:07 136        /dev/mem
+0472a000-0472b000 rw-s 1096b000 fc:07 136        /dev/mem
+04930000-049ac000 rw-s 20098000 fc:07 136        /dev/mem
+04a0e000-04a13000 rw-s 20028000 fc:07 136        /dev/mem
+04a13000-04a14000 rw-s 1096b000 fc:07 136        /dev/mem
+04cc7000-04ccc000 rw-s 20028000 fc:07 136        /dev/mem
+052e9000-052ea000 rw-s 1096b000 fc:07 136        /dev/mem
+052ea000-052eb000 rw-s f2910000 fc:07 136        /dev/mem
+0569c000-056a1000 rw-s 20028000 fc:07 136        /dev/mem
+056a1000-056a2000 rw-s f2912000 fc:07 136        /dev/mem
+0874d000-0a74d000 rw-s 202e0000 fc:07 287        /dev/stream
+0ab4d000-0abb5000 rw-s 20030000 fc:07 287        /dev/stream
+0b776000-0b77e000 rw-s 20145000 fc:07 136        /dev/mem
+0b9dd000-0b9fd000 rw-s 00000000 fc:07 177        /dev/dmpgles2
+0bd00000-0bd7c000 rw-s 20098000 fc:07 136        /dev/mem
+0d398000-0d3a9000 rw-s 10b1c000 fc:07 136        /dev/mem
+0d864000-0d875000 rw-s 10b2c000 fc:07 136        /dev/mem
+0e393000-0e429000 rw-s 23a80000 fc:07 287        /dev/stream
+0e879000-0e90f000 rw-s 23b16000 fc:07 287        /dev/stream
+10746000-10766000 rw-s 14fbc000 fc:07 434        /dev/stream2
+10b68000-10be9000 rw-s 23cb0000 fc:07 287        /dev/stream
+10e57000-10ed8000 rw-s 23c30000 fc:07 287        /dev/stream
+12cf0000-12d70000 rw-s 1503c000 fc:07 434        /dev/stream2
+16f5a000-1735a000 rw-s 222e0000 fc:07 287        /dev/stream
+173f7000-175f7000 rw-s 22880000 fc:07 287        /dev/stream
+176e1000-17881000 rw-s 226e0000 fc:07 287        /dev/stream

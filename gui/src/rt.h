@@ -20,6 +20,8 @@ typedef long ssize_t;
 #define O_TRUNC 01000
 #define O_APPEND 02000
 #define O_NONBLOCK 04000
+#define O_DSYNC 010000
+#define O_SYNC 04010000 /* __O_SYNC|O_DSYNC (Linux >= 2.6.33) */
 
 #define PROT_READ 1
 #define PROT_WRITE 2

@@ -7,6 +7,7 @@ all: $(TARGET)
 
 $(TARGET): $(SRCS) src/rt.h src/fb.h src/font.h
 	$(CC) $(CFLAGS) $(SRCS) -o $(TARGET)
+	cp $(TARGET) ../$(TARGET)
 
 clean:
 	rm -f $(TARGET)
