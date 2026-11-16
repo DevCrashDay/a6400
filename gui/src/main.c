@@ -8,6 +8,12 @@
 #define RITUAL_INI_TMP "/tmp/RITUAL.ini"
 #define RITUAL_STATUS_FILE "/tmp/ritual_status.txt"
 
+/* While nothing changes, re-copy the menu this often so it survives Sony
+ * repainting the OSD surfaces. Redraws on input happen immediately. */
+#define KEEPALIVE_MS 250
+/* A second ENTER within this window confirms a settings write. */
+#define CONFIRM_MS 3000
+
 /* Sony a6400 physical keycodes from Backup.bin & libObj.so */
 #define KEY_TACT_UP      0x0003u
 #define KEY_TACT_LEFT    0x0015u
@@ -178,10 +184,12 @@ static enum nav_event input_poll(struct input_poller *ip)
     }
     if (ip->proc_ready) {
         for (i = 0; i < NUM_POLL_KEYS; i++) {
-            if (write_file(ip->proc_path, POLL_KEYS[i].qstr, POLL_KEYS[i].qlen, 0) < 0)
+            if (write_file(ip->proc_path, POLL_KEYS[i].qstr, POLL_KEYS[i].qlen, 0) < 0 ||
+                read_file(ip->proc_path, buf, sizeof(buf)) <= 0) {
+                /* Re-probe next time so we can fall back to /proc/input */
+                ip->proc_ready = 0;
                 break;
-            if (read_file(ip->proc_path, buf, sizeof(buf)) <= 0)
-                break;
+            }
             {
                 const char *vl = find_substr(buf, "value:");
                 if (vl) {
@@ -345,60 +353,143 @@ struct menu_state {
     int halation;
     int rec_unlimit_mode; /* 0 = unlock 13h, 1 = restore 30m */
     int exit_mode;        /* 0 = hide OSD, 1 = quit daemon */
+    u32 confirm_ms;       /* when ENTER was first pressed on row 6, 0 = none */
     char status[64];
 };
 
+/* Find "KEY=value" at the start of a line (comments skipped) and copy
+ * the value. Searching the whole file would match the comment line that
+ * lists every stock name. */
+static int ini_get(const char *buf, const char *key, char *out, size_t cap)
+{
+    size_t kl = strlen(key);
+    const char *p = buf;
+    while (*p) {
+        const char *q = p;
+        while (*q == ' ' || *q == '\t')
+            q++;
+        if (*q != '#' && strncmp(q, key, kl) == 0 && q[kl] == '=') {
+            size_t n = 0;
+            q += kl + 1;
+            while (*q && *q != '\r' && *q != '\n' && *q != ' ' && *q != '\t' && *q != '#' && n + 1 < cap)
+                out[n++] = *q++;
+            out[n] = 0;
+            return 1;
+        }
+        while (*p && *p != '\n')
+            p++;
+        if (*p)
+            p++;
+    }
+    return 0;
+}
+
 static void load_ritual_ini(struct menu_state *m)
 {
-    char buf[512];
+    char buf[1024];
+    char v[24];
     int i;
     m->stock_idx = 0;
     m->grain_idx = 2;
     m->halation = 1;
+    /* Same precedence as ritual_daemon: /tmp copy wins over the SD card */
     if (read_file(RITUAL_INI_TMP, buf, sizeof(buf)) <= 0 &&
         read_file(RITUAL_INI, buf, sizeof(buf)) <= 0)
         return;
-    for (i = 0; i < NUM_STOCKS; i++) {
-        if (find_substr(buf, STOCKS[i])) {
-            m->stock_idx = i;
-            break;
+    if (ini_get(buf, "STOCK", v, sizeof(v))) {
+        for (i = 0; i < NUM_STOCKS; i++) {
+            if (strcmp(v, STOCKS[i]) == 0) {
+                m->stock_idx = i;
+                break;
+            }
         }
     }
-    for (i = 0; i < NUM_GRAINS; i++) {
-        char pat[24];
-        fmt(pat, sizeof(pat), "GRAIN=%s", GRAINS[i]);
-        if (find_substr(buf, pat)) {
-            m->grain_idx = i;
-            break;
+    if (ini_get(buf, "GRAIN", v, sizeof(v))) {
+        for (i = 0; i < NUM_GRAINS; i++) {
+            if (strcmp(v, GRAINS[i]) == 0) {
+                m->grain_idx = i;
+                break;
+            }
         }
     }
-    if (find_substr(buf, "HALATION=OFF") || find_substr(buf, "HALATION=0"))
-        m->halation = 0;
-    else if (find_substr(buf, "HALATION=ON") || find_substr(buf, "HALATION=1"))
-        m->halation = 1;
+    if (ini_get(buf, "HALATION", v, sizeof(v))) {
+        if (strcmp(v, "OFF") == 0 || strcmp(v, "0") == 0)
+            m->halation = 0;
+        else if (strcmp(v, "ON") == 0 || strcmp(v, "1") == 0)
+            m->halation = 1;
+    }
 }
 
+/* Rewrite only the STOCK/GRAIN/HALATION lines, keeping comments and any
+ * other keys in the existing file. */
 static void save_ritual_ini(struct menu_state *m)
 {
-    char buf[256];
-    int n = fmt(buf, sizeof(buf),
-                "# Sony a6400 The Ritual Configuration\n"
-                "STOCK=%s\n"
-                "GRAIN=%s\n"
-                "HALATION=%s\n",
-                STOCKS[m->stock_idx],
-                GRAINS[m->grain_idx],
-                m->halation ? "ON" : "OFF");
-    write_file(RITUAL_INI_TMP, buf, (size_t)n, 0);
+    char in[1024];
+    char out[1280];
+    const char *keys[3];
+    const char *vals[3];
+    int seen[3] = {0, 0, 0};
+    size_t o = 0;
+    int k, n;
+    const char *p;
+
+    keys[0] = "STOCK";    vals[0] = STOCKS[m->stock_idx];
+    keys[1] = "GRAIN";    vals[1] = GRAINS[m->grain_idx];
+    keys[2] = "HALATION"; vals[2] = m->halation ? "ON" : "OFF";
+
+    if (read_file(RITUAL_INI_TMP, in, sizeof(in)) <= 0 &&
+        read_file(RITUAL_INI, in, sizeof(in)) <= 0)
+        fmt(in, sizeof(in), "# Sony a6400 The Ritual Configuration\n");
+
+    for (p = in; *p && o + 1 < sizeof(out); ) {
+        const char *eol = p;
+        const char *q = p;
+        size_t len;
+        int replaced = 0;
+        while (*eol && *eol != '\n')
+            eol++;
+        len = (size_t)(eol - p) + (*eol ? 1 : 0);
+        while (*q == ' ' || *q == '\t')
+            q++;
+        for (k = 0; k < 3 && *q != '#'; k++) {
+            size_t kl = strlen(keys[k]);
+            if (strncmp(q, keys[k], kl) == 0 && q[kl] == '=') {
+                /* keep the line's own ending (the SD copy may be CRLF) */
+                o += (size_t)fmt(out + o, sizeof(out) - o, "%s=%s%s", keys[k], vals[k],
+                                 (len >= 2 && p[len - 2] == '\r') ? "\r\n" : "\n");
+                seen[k] = 1;
+                replaced = 1;
+                break;
+            }
+        }
+        if (!replaced) {
+            if (o + len >= sizeof(out))
+                break;
+            memcpy(out + o, p, len);
+            o += len;
+        }
+        p += len;
+    }
+    if (o > 0 && o < sizeof(out) && out[o - 1] != '\n')
+        out[o++] = '\n';
+    for (k = 0; k < 3; k++)
+        if (!seen[k] && o + 1 < sizeof(out))
+            o += (size_t)fmt(out + o, sizeof(out) - o, "%s=%s\n", keys[k], vals[k]);
+    if (o >= sizeof(out))
+        o = sizeof(out) - 1;
+    n = (int)o;
+
+    write_file(RITUAL_INI_TMP, out, (size_t)n, 0);
     if (sys_access("/mnt/DCIM", 0) == 0)
-        write_file(RITUAL_INI, buf, (size_t)n, 0);
+        write_file(RITUAL_INI, out, (size_t)n, 0);
 }
 
 static void ensure_ritual_daemon(void)
 {
     const char *cmd =
-        "if [ ! -f /tmp/ritual_daemon.pid ] || ! pidof ritual_daemon >/dev/null 2>&1; then "
-        "  killall ritual_daemon 2>/dev/null; "
+        /* BusyBox 1.13.4 on the camera has no killall; only start the
+         * daemon when pidof says it isn't running. */
+        "if ! pidof ritual_daemon >/dev/null 2>&1; then "
         "  if [ -x /tmp/ritual_daemon ]; then /tmp/ritual_daemon >/dev/null 2>&1 & "
         "  elif [ -x /mnt/ritual_daemon ]; then /mnt/ritual_daemon >/dev/null 2>&1 & "
         "  fi; "
@@ -422,10 +513,11 @@ static void execute_row(struct menu_state *m, int *osd_visible)
     char cmd[256];
     reap_bg();
 
-    /* If a background task is running and user hits ENTER on rows 1..3, stop it */
-    if (g_bg_pid > 0 && (m->row == 1 || m->row == 2 || m->row == 3)) {
+    /* While a background task runs, ENTER on any row that starts one
+     * (0..3) stops it instead, so a running task is never orphaned. */
+    if (g_bg_pid > 0 && m->row >= 0 && m->row <= 3) {
+        fmt(m->status, sizeof(m->status), "Stopped %s.", g_bg_label ? g_bg_label : "task");
         stop_bg();
-        fmt(m->status, sizeof(m->status), "Stopped background task.");
         return;
     }
 
@@ -479,6 +571,15 @@ static void execute_row(struct menu_state *m, int *osd_visible)
     }
     case 6: { /* 30-Min Rec Limit */
         const char *sh = resolve_script("/tmp/rec_unlimit.sh", "/mnt/rec_unlimit.sh", "/mnt/rec_unlimit/rec_unlimit.sh");
+        u32 now = now_ms();
+        int rc;
+        /* This writes a persistent camera setting, so ask for a second ENTER */
+        if (m->confirm_ms == 0 || now - m->confirm_ms > CONFIRM_MS) {
+            m->confirm_ms = now ? now : 1;
+            fmt(m->status, sizeof(m->status), "Writes camera setting! ENTER again to confirm");
+            break;
+        }
+        m->confirm_ms = 0;
         if (sys_access(sh, 0) == 0) {
             fmt(cmd, sizeof(cmd), "/bin/sh %s %s", sh, m->rec_unlimit_mode ? "--restore" : "--apply");
         } else if (m->rec_unlimit_mode == 0) {
@@ -486,8 +587,11 @@ static void execute_row(struct menu_state *m, int *osd_visible)
         } else {
             fmt(cmd, sizeof(cmd), "/usr/bin/bk.elf w 003c0373 00 && /usr/bin/bk.elf w 003c0374 1D && /usr/bin/bk.elf w 003c0375 00 && /usr/bin/bk.elf s");
         }
-        spawn_sh(cmd, 0, NULL);
-        fmt(m->status, sizeof(m->status), m->rec_unlimit_mode ? "Restored 30m limit" : "Unlocked 13h rec limit!");
+        rc = spawn_sh(cmd, 0, NULL);
+        if (rc == 0)
+            fmt(m->status, sizeof(m->status), m->rec_unlimit_mode ? "Restored 30m limit" : "Unlocked 13h rec limit");
+        else
+            fmt(m->status, sizeof(m->status), "Rec limit change FAILED (exit %d), see gui.log", rc);
         break;
     }
     case 7:
@@ -626,9 +730,7 @@ static void render_menu(struct fb *f, const struct menu_state *m)
     /* Footer bar */
     gfx_fill(f, 2, h - 54, w - 4, 52, c_hdr);
     gfx_text(f, pad, h - 48, m->status, c_green, 1, w - 2 * pad);
-    gfx_text(f, pad, h - 24, "UP/DN:Move  L/R:Change  ENTER:Run  C1:Hide  C2:Quit", c_muted, 1, w - 2 * pad);
-
-    fb_present(f);
+    gfx_text(f, pad, h - 24, "^v:Move  <>:Change  OK:Run  C1:Hide  C2:Quit", c_muted, 1, w - 2 * pad);
 }
 
 /* ---- Modes: info / banner / interactive menu ---- */
@@ -674,6 +776,38 @@ static int cmd_info(const char *fb_dev)
     return 0;
 }
 
+/* Hide the claimed rectangle. Default puts back the pixels saved at claim
+ * time; --hide-clear makes it transparent instead (use `colortest` first
+ * to check that alpha 0 really is see-through on this plane). */
+static int g_hide_clear = 0;
+
+static void osd_hide(struct fb *f)
+{
+    if (g_hide_clear)
+        fb_clear_claimed(f);
+    else
+        fb_restore(f);
+}
+
+/* Present once, then only every KEEPALIVE_MS until `seconds` pass or a
+ * signal arrives. */
+static void hold_overlay(struct fb *f, u32 seconds)
+{
+    u32 start = now_ms();
+    u32 last = start;
+    set_signal(SIGINT, on_sig);
+    set_signal(SIGTERM, on_sig);
+    set_signal(SIGHUP, on_sig);
+    fb_present(f);
+    while (!g_stop && now_ms() - start < seconds * 1000u) {
+        if (now_ms() - last >= KEEPALIVE_MS) {
+            fb_present(f);
+            last = now_ms();
+        }
+        msleep(50);
+    }
+}
+
 static int cmd_banner(const char *fb_dev, const char *msg, u32 seconds)
 {
     struct fb f;
@@ -702,18 +836,64 @@ static int cmd_banner(const char *fb_dev, const char *msg, u32 seconds)
     gfx_frame(&f, 0, 0, (int)bw, (int)bh, 3, fb_rgb(&f, 230, 168, 40));
     gfx_text(&f, 16, 16, "SONY a6400 HOMEBREW", fb_rgb(&f, 245, 194, 66), 1, (int)bw - 32);
     gfx_text(&f, 16, 48, msg, fb_rgb(&f, 240, 244, 250), 1, (int)bw - 32);
-    fb_present(&f);
 
-    set_signal(SIGINT, on_sig);
-    set_signal(SIGTERM, on_sig);
-    set_signal(SIGHUP, on_sig);
+    hold_overlay(&f, seconds);
 
-    for (u32 t = 0; t < seconds * 20 && !g_stop; t++) {
-        fb_present(&f);
-        msleep(50);
+    osd_hide(&f);
+    fb_close(&f);
+    return 0;
+}
+
+/* Seven bars to confirm the pixel format on camera: R, G, B, white, black,
+ * then white at 50% and 0% alpha. If R/G/B show in the wrong colours the
+ * channel order is wrong; if the A0 bar is solid white instead of
+ * see-through, alpha polarity is inverted and --hide-clear must not be used. */
+static int cmd_colortest(const char *fb_dev, u32 seconds)
+{
+    static const char *const names[7] = { "R", "G", "B", "W", "K", "A50", "A0" };
+    struct fb f;
+    u32 bw, bh, bx, by;
+    u32 cols[7];
+    int r, i, bar_w;
+
+    r = fb_open(&f, fb_dev, 1);
+    if (r < 0) {
+        printf("fb_open(%s) failed: %d\n", fb_dev ? fb_dev : "/dev/fb0", r);
+        return 1;
+    }
+    fb_print_info(&f, 1);
+
+    bw = f.var.xres > 480 ? 460 : f.var.xres - 20;
+    bh = 120;
+    bx = (f.var.xres - bw) / 2;
+    by = (f.var.yres - bh) / 2;
+    if (fb_claim(&f, bx, by, bw, bh) < 0) {
+        printf("fb_claim failed\n");
+        fb_close(&f);
+        return 1;
     }
 
-    fb_restore(&f);
+    cols[0] = fb_rgb(&f, 255, 0, 0);
+    cols[1] = fb_rgb(&f, 0, 255, 0);
+    cols[2] = fb_rgb(&f, 0, 0, 255);
+    cols[3] = fb_rgb(&f, 255, 255, 255);
+    cols[4] = fb_rgb(&f, 0, 0, 0);
+    cols[5] = fb_rgba(&f, 255, 255, 255, 128);
+    cols[6] = fb_rgba(&f, 255, 255, 255, 0);
+
+    gfx_fill(&f, 0, 0, (int)bw, (int)bh, fb_rgb(&f, 18, 20, 26));
+    bar_w = ((int)bw - 16) / 7;
+    for (i = 0; i < 7; i++) {
+        int x = 8 + i * bar_w;
+        gfx_fill(&f, x + 2, 8, bar_w - 4, 72, cols[i]);
+        gfx_text(&f, x + (bar_w - gfx_text_w(names[i], 1)) / 2, 88, names[i],
+                 fb_rgb(&f, 240, 244, 250), 1, bar_w);
+        printf("bar %s = 0x%04x\n", names[i], cols[i]);
+    }
+
+    hold_overlay(&f, seconds);
+
+    osd_hide(&f);
     fb_close(&f);
     return 0;
 }
@@ -727,6 +907,14 @@ static int claim_menu_rect(struct fb *f)
     return fb_claim(f, mx, my, mw, mh);
 }
 
+static void usage(const char *argv0)
+{
+    printf("Usage: %s [-d DEV] [--hide-clear] [menu | --daemon | info | banner <text> [sec] | colortest [sec]]\n"
+           "  -d DEV        /dev/fb0 or /dev/mem@0xPHYS[+0xPHYS2][:WxHxFMT[:STRIDE]]\n"
+           "  --hide-clear  hide by drawing transparent pixels instead of restoring the snapshot\n",
+           argv0);
+}
+
 int main(int argc, char **argv, char **envp)
 {
     const char *fb_dev = "/dev/fb0";
@@ -735,14 +923,22 @@ int main(int argc, char **argv, char **envp)
     struct menu_state m;
     int osd_visible = 1;
     int dirty = 1;
+    u32 last_present = 0;
     char pidbuf[16];
-    int n, argi = 1;
+    int n, logfd, argi = 1;
 
     (void)envp;
 
-    if (argi < argc && strcmp(argv[argi], "-d") == 0 && argi + 1 < argc) {
-        fb_dev = argv[argi + 1];
-        argi += 2;
+    while (argi < argc) {
+        if (strcmp(argv[argi], "-d") == 0 && argi + 1 < argc) {
+            fb_dev = argv[argi + 1];
+            argi += 2;
+        } else if (strcmp(argv[argi], "--hide-clear") == 0) {
+            g_hide_clear = 1;
+            argi++;
+        } else {
+            break;
+        }
     }
 
     if (argi < argc) {
@@ -755,10 +951,16 @@ int main(int argc, char **argv, char **envp)
                 secs = 3;
             return cmd_banner(fb_dev, msg, secs);
         }
+        if (strcmp(argv[argi], "colortest") == 0 || strcmp(argv[argi], "--colortest") == 0) {
+            u32 secs = (argi + 1 < argc) ? parse_u32(argv[argi + 1]) : 5;
+            if (secs == 0)
+                secs = 5;
+            return cmd_colortest(fb_dev, secs);
+        }
         if (strcmp(argv[argi], "--hidden") == 0 || strcmp(argv[argi], "--daemon") == 0)
             osd_visible = 0;
         if (strcmp(argv[argi], "-h") == 0 || strcmp(argv[argi], "--help") == 0) {
-            printf("Usage: %s [-d /dev/fb0] [menu | --daemon | info | banner <text> [sec]]\n", argv[0]);
+            usage(argv[0]);
             return 0;
         }
     }
@@ -768,6 +970,12 @@ int main(int argc, char **argv, char **envp)
         return 1;
     }
     fb_print_info(&f, 1);
+    /* Also record the chosen surface in gui.log for runs without a console */
+    logfd = sys_open(LOG_FILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (logfd >= 0) {
+        fb_print_info(&f, logfd);
+        sys_close(logfd);
+    }
 
     set_signal(SIGINT, on_sig);
     set_signal(SIGTERM, on_sig);
@@ -781,7 +989,6 @@ int main(int argc, char **argv, char **envp)
     m.exit_mode = 1; /* Quit GUI default on Row 8 */
     ensure_ritual_daemon();
     load_ritual_ini(&m);
-    save_ritual_ini(&m);
     fmt(m.status, sizeof(m.status), "Ready. C1:Hide/Show  C2(Trash):Quit");
 
     input_init(&ip);
@@ -838,15 +1045,25 @@ int main(int argc, char **argv, char **envp)
             }
         }
 
+        /* Any navigation cancels a pending "ENTER again to confirm" */
+        if (ev != NAV_NONE && ev != NAV_ENTER && m.confirm_ms) {
+            m.confirm_ms = 0;
+            fmt(m.status, sizeof(m.status), "Cancelled.");
+        }
+
         if (ev == NAV_QUIT) {
             break;
         } else if (ev == NAV_TOGGLE_OSD) {
-            osd_visible = !osd_visible;
-            if (osd_visible) {
-                claim_menu_rect(&f);
-                dirty = 1;
+            if (!osd_visible) {
+                if (claim_menu_rect(&f) == 0) {
+                    osd_visible = 1;
+                    dirty = 1;
+                } else {
+                    write_file(LOG_FILE, "gui: fb_claim failed on show\n", 29, 1);
+                }
             } else {
-                fb_restore(&f);
+                osd_visible = 0;
+                osd_hide(&f);
             }
         } else if (osd_visible && ev != NAV_NONE) {
             switch (ev) {
@@ -869,13 +1086,13 @@ int main(int argc, char **argv, char **envp)
             case NAV_ENTER:
                 execute_row(&m, &osd_visible);
                 if (!osd_visible)
-                    fb_restore(&f);
+                    osd_hide(&f);
                 else
                     dirty = 1;
                 break;
             case NAV_BACK:
                 osd_visible = 0;
-                fb_restore(&f);
+                osd_hide(&f);
                 break;
             default:
                 break;
@@ -883,11 +1100,15 @@ int main(int argc, char **argv, char **envp)
         }
 
         if (osd_visible) {
+            u32 now = now_ms();
             if (dirty) {
                 render_menu(&f, &m);
-                dirty = 0;
-            } else {
                 fb_present(&f);
+                dirty = 0;
+                last_present = now;
+            } else if (now - last_present >= KEEPALIVE_MS) {
+                fb_present(&f);
+                last_present = now;
             }
         }
 
@@ -896,7 +1117,7 @@ int main(int argc, char **argv, char **envp)
 
     stop_bg();
     if (osd_visible)
-        fb_restore(&f);
+        osd_hide(&f);
     fb_close(&f);
     sys_unlink(PID_FILE);
     return 0;

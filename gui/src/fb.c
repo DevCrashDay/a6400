@@ -33,19 +33,23 @@ static u32 parse_u32_auto(const char **ps)
  *   4444 -> RGBA4444 (2B/px: R12..15, G8..11, B4..7, A0..3)
  *   1444 -> ARGB4444 (2B/px: A12..15, R8..11, G4..7, B0..3)
  *   32   -> ARGB8888 (4B/px)
+ * region_size: size of the memspace the surface lives in (0 = unknown, as
+ * with an explicit -d spec). The mapping must never extend past it, or our
+ * writes would land in whatever physical memory follows.
  */
-static int fb_open_devmem(struct fb *f, u32 phys, u32 phys2, u32 w, u32 h, u32 fmt_code, u32 stride, const char *tag, int writable)
+static int fb_open_devmem(struct fb *f, u32 phys, u32 phys2, u32 w, u32 h, u32 fmt_code, u32 stride, u32 region_size, const char *tag, int writable)
 {
-    int fl = writable ? O_RDWR : O_RDONLY;
+    /* O_SYNC makes the ARM /dev/mem mapping write-combined instead of
+     * cacheable (phys_mem_access_prot), so pixels reach DRAM where the
+     * display engine reads them instead of sitting in the CPU cache. */
+    int fl = (writable ? O_RDWR : O_RDONLY) | O_SYNC;
     u32 page_off = phys & 0xFFFu;
     u32 page_phys = phys & ~0xFFFu;
     size_t raw_len, map_len;
     void *m;
 
     memset(f, 0, sizeof(*f));
-    f->fd = sys_open("/dev/mem", fl, 0);
-    if (f->fd < 0)
-        return f->fd;
+    f->fd = -1;
 
     if (w == 0) w = 640;
     if (h == 0) h = 480;
@@ -86,8 +90,14 @@ static int fb_open_devmem(struct fb *f, u32 phys, u32 phys2, u32 w, u32 h, u32 f
     f->fix.line_length = f->stride;
     f->fix.smem_start = phys;
     raw_len = (size_t)f->stride * h;
+    if (region_size && raw_len > region_size)
+        return -22; /* -EINVAL: surface would overrun its memspace */
     f->fix.smem_len = (u32)raw_len;
     fmt(f->fix.id, sizeof(f->fix.id), "%s", tag ? tag : "devmem");
+
+    f->fd = sys_open("/dev/mem", fl, 0);
+    if (f->fd < 0)
+        return f->fd;
 
     map_len = (raw_len + page_off + 0xFFFu) & ~(size_t)0xFFFu;
     m = sys_mmap(NULL, map_len, PROT_READ | (writable ? PROT_WRITE : 0),
@@ -228,7 +238,10 @@ int fb_open(struct fb *f, const char *dev, int writable)
         }
         if (phys == 0)
             return -22; /* -EINVAL */
-        return fb_open_devmem(f, phys, phys2, w, h, fmt_code, stride, "devmem", writable);
+        rc = fb_open_devmem(f, phys, phys2, w, h, fmt_code, stride, 0, "devmem", writable);
+        if (rc == 0)
+            fmt(f->src, sizeof(f->src), "explicit -d spec");
+        return rc;
     }
 
     rc = sys_open(dev, fl, 0);
@@ -238,16 +251,24 @@ int fb_open(struct fb *f, const char *dev, int writable)
         u32 phys1 = 0, phys2 = 0, sz = 0;
         char name[16];
         if (fb_probe_ma_memspace(&phys1, &phys2, &sz, name, sizeof(name)) == 0) {
-            u32 w = 640, h = 480, fmt_code = 4444;
+            u32 w, h, fmt_code;
+            /* Only accept sizes that exactly match a known OSD layout; an
+             * unknown monolithic region may belong to another subsystem. */
             if (sz == 640u * 480u * 2u) { w = 640; h = 480; fmt_code = 4444; }
             else if (sz == 640u * 480u * 4u) { w = 640; h = 480; fmt_code = 32; }
             else if (sz == 960u * 480u * 2u) { w = 960; h = 480; fmt_code = 4444; }
             else if (sz == 960u * 480u * 4u) { w = 960; h = 480; fmt_code = 32; }
-            return fb_open_devmem(f, phys1, phys2, w, h, fmt_code, 0, name, writable);
+            else return -22; /* -EINVAL: unknown size, use -d /dev/mem@... */
+            rc = fb_open_devmem(f, phys1, phys2, w, h, fmt_code, 0, sz, name, writable);
+            if (rc == 0)
+                fmt(f->src, sizeof(f->src), "ma_memspace %s, size 0x%x -> %ux%u",
+                    phys2 ? "pair" : "single", sz, w, h);
+            return rc;
         }
         return rc;
     }
     f->fd = rc;
+    fmt(f->src, sizeof(f->src), "fbdev %s", dev);
 
     if (sys_ioctl(f->fd, FBIOGET_VSCREENINFO, &f->var) < 0 ||
         sys_ioctl(f->fd, FBIOGET_FSCREENINFO, &f->fix) < 0) {
@@ -292,6 +313,7 @@ void fb_print_info(struct fb *f, int fd)
              f->var.bits_per_pixel, f->bpp,
              f->stride, f->fix.smem_len,
              f->map ? (f->map2 ? "mmap(x2)" : "mmap") : "lseek+rw");
+    fdprintf(fd, "fb: source: %s\n", f->src[0] ? f->src : "?");
     fdprintf(fd, "fb: rgba=%u/%u,%u/%u,%u/%u,%u/%u\n",
              f->var.red.offset, f->var.red.length,
              f->var.green.offset, f->var.green.length,
@@ -444,6 +466,17 @@ void fb_restore(struct fb *f)
     }
 }
 
+/* Hide by making the claimed rectangle fully transparent instead of
+ * pasting back the snapshot from claim time, which may be stale by now.
+ * Sony's GUI repaints its own items over the cleared area. */
+void fb_clear_claimed(struct fb *f)
+{
+    if (!f->back)
+        return;
+    gfx_fill(f, 0, 0, (int)f->rw, (int)f->rh, fb_rgba(f, 0, 0, 0, 0));
+    fb_present(f);
+}
+
 void fb_close(struct fb *f)
 {
     size_t sz = (size_t)f->rw * f->rh * f->bpp;
@@ -480,17 +513,21 @@ static inline u32 pack_chan(u8 v, const struct fb_bitfield *bf)
 
 u32 fb_rgb(struct fb *f, u8 r, u8 g, u8 b)
 {
+    return fb_rgba(f, r, g, b, 255);
+}
+
+u32 fb_rgba(struct fb *f, u8 r, u8 g, u8 b, u8 a)
+{
     if (f->var.red.length || f->var.green.length || f->var.blue.length) {
         u32 px = pack_chan(r, &f->var.red) |
                  pack_chan(g, &f->var.green) |
-                 pack_chan(b, &f->var.blue);
-        if (f->var.transp.length && f->var.transp.length <= 8)
-            px |= ((1u << f->var.transp.length) - 1u) << f->var.transp.offset;
+                 pack_chan(b, &f->var.blue) |
+                 pack_chan(a, &f->var.transp);
         return px;
     }
     if (f->bpp == 2)
         return ((u32)(r >> 3) << 11) | ((u32)(g >> 2) << 5) | (u32)(b >> 3);
-    return 0xFF000000u | ((u32)r << 16) | ((u32)g << 8) | (u32)b;
+    return ((u32)a << 24) | ((u32)r << 16) | ((u32)g << 8) | (u32)b;
 }
 
 static inline void put_px(struct fb *f, int x, int y, u32 px)

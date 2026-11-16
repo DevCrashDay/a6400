@@ -69,7 +69,14 @@ Or directly via the binary:
 ```
 Claims a centered rectangle on `/dev/fb0`, saves the underlying pixels, draws a framed OSD banner, waits 3 seconds, and restores the original screen contents.
 
-### 3. Launch Interactive OSD Menu
+### 3. Check the Pixel Format (Colour Test)
+
+```sh
+/tmp/a6400_gui.elf colortest 5
+```
+Draws seven bars: R, G, B, W, K, then white at 50% alpha (A50) and 0% alpha (A0). If R, G and B appear in the wrong colours, the channel order guess is wrong. If A0 is see-through (live view shows through), alpha 0 means transparent and `--hide-clear` is safe to use. If A0 is solid white, the alpha polarity is inverted, so don't use `--hide-clear`.
+
+### 4. Launch Interactive OSD Menu
 
 ```sh
 /tmp/a6400_gui.elf
@@ -83,13 +90,18 @@ Or run in background daemon mode (hidden until `C1` is pressed or `show` is sent
 
 | Camera Button | Physical Code | Action in OSD Menu |
 |---|---|---|
-| **Up / DISP** | `0x0003` / `0x01f9` | Previous menu row |
+| **Up** | `0x0003` | Previous menu row |
 | **Down** | `0x0030` | Next menu row |
-| **Left / Wheel CCW** | `0x0015` / `0x10000000` | Previous option / value |
-| **Right / Wheel CW** | `0x01af` / `0x10000001` | Next option / value |
+| **Left** | `0x0015` | Previous option / value |
+| **Right** | `0x01af` | Next option / value |
 | **Center (Enter)** | `0x01ac` | Execute selected item / Save setting |
-| **MENU / Trash (C2)** | `0x01ab` / `0x01f8` | Hide OSD and restore screen |
+| **MENU** | `0x01ab` | Hide OSD |
 | **Custom (C1)** | `0x0066` | Toggle OSD visibility on/off |
+| **Trash (C2)** | `0x01f8` | Quit the GUI |
+
+DISP and the control wheel / front dial are not polled. Button presses are only observed, not consumed, so Sony's own UI also reacts to them. Set C1 and C2 to "Not Set" in the camera's Custom Key settings so they only drive the OSD.
+
+The **30m Video Limit** row writes a persistent camera setting, so it needs a second ENTER within 3 seconds to confirm. Pressing ENTER on rows 1-4 while a task is running stops that task.
 
 #### Shell / Remote Control via `/tmp/gui.cmd`
 
@@ -101,6 +113,15 @@ echo enter > /tmp/gui.cmd
 echo toggle > /tmp/gui.cmd
 echo quit > /tmp/gui.cmd
 ```
+
+### Options
+
+| Option | Effect |
+|---|---|
+| `-d DEV` | `/dev/fb0`, or `/dev/mem@0xPHYS[+0xPHYS2][:WxHxFMT[:STRIDE]]` to skip auto-detection |
+| `--hide-clear` | Hide by drawing transparent pixels instead of pasting back the snapshot taken when the menu opened (which can leave stale "ghost" pixels). Run `colortest` first. |
+
+Auto-detection only accepts `/proc/udm/ma_memspace_info` regions whose size exactly matches a known OSD layout (640x480 or 960x480, 16 or 32 bpp). Otherwise it refuses to draw, and you have to pass `-d`. The surface it picked is printed by `info` and appended to `/tmp/gui.log`. `/dev/mem` is opened with `O_SYNC`, so pixel writes bypass the CPU cache. The menu is redrawn on input and otherwise re-copied every 250 ms.
 
 ---
 

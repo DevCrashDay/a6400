@@ -1,0 +1,5 @@
+pattern: 3840X2160_24P
+main app (pid 152):
+lrwxrwxrwx    1 0        0               0 Jan  1 00:13 /proc/152/exe -> /usr/bin/im.elf
+
+== RAM 0x00000000-0x3FFFFFFF (MB 0-1023)

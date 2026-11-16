@@ -49,6 +49,7 @@ struct fb {
     u32 rx, ry, rw, rh;
     u8 *back, *saved, *saved2;
     int have_saved;
+    char src[64];  /* how the surface was chosen, for logs */
 };
 
 int fb_open(struct fb *f, const char *dev, int writable);
@@ -57,9 +58,11 @@ int fb_claim(struct fb *f, u32 x, u32 y, u32 w, u32 h);
 int fb_read_rect(struct fb *f, u8 *dst);
 int fb_present(struct fb *f);
 void fb_restore(struct fb *f);
+void fb_clear_claimed(struct fb *f);
 void fb_close(struct fb *f);
 
 u32 fb_rgb(struct fb *f, u8 r, u8 g, u8 b);
+u32 fb_rgba(struct fb *f, u8 r, u8 g, u8 b, u8 a);
 void gfx_fill(struct fb *f, int x, int y, int w, int h, u32 px);
 void gfx_frame(struct fb *f, int x, int y, int w, int h, int t, u32 px);
 int gfx_text(struct fb *f, int x, int y, const char *s, u32 fg, int scale, int maxw);

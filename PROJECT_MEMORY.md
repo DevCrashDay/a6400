@@ -40,6 +40,7 @@
 - 2026-10-26: Compiled BusyBox 1.31 static ARMv7 binary (busybox_armv7, 1.1MB) for telnetd/httpd/utilities
 - 2026-10-26: Completed full NAND partition dump — 22 raw images in DUMP/ folder covering all partitions
 - 2026-10-26: Created comprehensive documentation suite (README, CAPABILITIES, DEVELOPER_GUIDE, DRIVER_SETUP_GUIDE, USER_GUIDE, TROUBLESHOOTING)
+- 2026-10-29: OSD fixes in gui/ (rebuilt a6400_gui.elf, 37112 B): /dev/mem opened O_SYNC; memspace auto-detect refuses unknown sizes and never maps past the region; present only when dirty + 250 ms keepalive; new `colortest` mode and `--hide-clear`; RITUAL.ini parsed by key (was always PORTRA), no startup save; rec-limit row needs a second ENTER; footer fits; surface choice logged to /tmp/gui.log. Review: gui/OSD_REVIEW.md.
 
 ## What Worked
 - 2026-10-29: Script focus moves CONFIRMED on camera (Ash, SEL18135, Focus Mode MF): FOCUS_DRIVE 0x1A000025 with ex_info ±7 and ±1 moved focus (probe_focus.sh). 2026-10-29 focus_bracket.sh -n 10 -d far ran end to end on camera (10 shots, 9 small far steps, ~12 s/frame); Ash reports everything worked.
@@ -85,7 +86,7 @@
 - 2026-10-26: Sony ARW files contain embedded JPEG preview within first 3MB — can be extracted by scanning for JPEG SOI/EOI markers
 
 ## Done (continued)
-- 2026-10-28: Implemented 30-minute recording limit removal feature. Three Backup.bin properties (0x003c0373/H, 0x003c0374/M, 0x003c0375/S) changed from factory 0h29m50s to 13h01m00s. Values sourced from OpenMemories-Platform (backup.cpp line 249, tweaks.cpp line 249). Uses bk.elf r/w/s commands. Integrated into autoexec.sh Section 9 (opt-in via /mnt/enable_rec_unlimit, killswitch via /mnt/disable_rec_unlimit). Standalone tool: tools/rec_unlimit.sh (--status/--restore). Full docs: tools/README_rec_unlimit.md.
+- 2026-10-28: Implemented 30-minute recording limit removal feature. Three Backup.bin properties (0x003c0373/H, 0x003c0374/M, 0x003c0375/S) changed from factory 0h29m50s to 13h01m00s. Values sourced from OpenMemories-Platform (backup.cpp line 249, tweaks.cpp line 249). Uses bk.elf r/w/s commands. Integrated into autoexec.sh Section 9 (opt-in via /mnt/enable_rec_unlimit, killswitch via /mnt/disable_rec_unlimit). Standalone tool: rec_unlimit/rec_unlimit.sh (--status/--restore). Full docs: rec_unlimit/README.md.
 
 ## Findings (continued)
 - 2026-10-28: Recording limit stored as 3 separate 1-byte Backup.bin properties: 0x003c0373 (Hours), 0x003c0374 (Minutes), 0x003c0375 (Seconds). Factory = 00/1D/32 = 0h29m50s (EU import duty). Unrestricted = 0D/01/00 = 13h01m00s (Sony camcorder value, safe margin below 90KHz timer overflow at 13h15m21s).
@@ -100,14 +101,16 @@
 - autoexec_hook.so boot persistence needs on-camera verification (was ld.so.preload actually tested and confirmed working at boot?)
 - None of the new binaries (ritual_daemon, ritual_menu, arw_develop, etc.) have been confirmed running on camera yet — they're cross-compiled but need on-camera testing
 - Android partitions (nflasha16/17, 240MB) still unexplored
+- 2026-10-29: SD-card edits to RITUAL.ini are ignored once /tmp/RITUAL.ini exists: ritual_daemon.c load_config lets /tmp override /mnt and later copies /tmp over /mnt. Needs a daemon-side rule (e.g. newer file wins).
+- 2026-10-29: Rebuilt gui/a6400_gui.elf (OSD fixes) not yet tested on camera. Run `a6400_gui.elf colortest` first.
 
 ## Session Log
-- 2026-10-28: Thread "Show homebrew GUI on camera screen" (PR #8) - researched display (libObj/DMP/fb0) and input (/proc/input), and implemented freestanding ARMv7 GUI framework in gui/ (
-t.h, 
-t.c, b.h, b.c, ont.h, main.c, 	ools/mkfont.py, probe_gui.sh, 6400_gui.elf).
+- 2026-10-28: Thread "Show homebrew GUI on camera screen" (PR #8) - researched display (libObj/DMP/fb0) and input (/proc/input), and implemented freestanding ARMv7 GUI framework in gui/ (rt.h, rt.c, fb.h, fb.c, font.h, main.c, tools/mkfont.py, probe_gui.sh, a6400_gui.elf).
 - 2026-10-26: Thread "Launch homebrew apps from camera menu" - Researched GUI homebrew paths. Created handoff6400_v3.zip.
 - 2026-10-26: Thread "Dump a6400 storage for offline research" - Created dump guide, pushed to repo.
 - 2026-10-26: Thread "Review latest local homebrew progress" - Reviewed massive local build-out: full homebrew platform with LD_PRELOAD boot persistence, film lab daemon, terminal menu, mobile web UI, desktop wizard, SDK with 5 examples, 6 utility tools, full partition dumps, and comprehensive docs. Updated PROJECT_MEMORY.md.
 - 2026-10-28: Thread "Add focus stacking bracketing" - Derived focus step key codes from firmware key table. Built focus_bracket.sh + probe_focus.sh + research doc. PR #7. Recheck fixed wrong key codes; camera test showed STEP_FOCUS keys ignored; switched to PC-remote FOCUS_DRIVE+ex_info path, which moves focus on camera. PR #7 merged.
 - 2026-10-29: Thread "Organize features into separate folders" - Restructured repo: astro_shutter/ (from h74fa6), rec_unlimit/ (from a1qz2p), hook/ (from cbwb2j), focus_bracket/ (already existed). Each folder has a README with copy-to-camera and usage instructions. PR #10.
 - 2026-10-29: Thread "Assess open-gate video recording" - firmware research, verdict not possible; alternative is full-3:2 time-lapse via intervalometer.
+- 2026-10-29: Thread "Review on-camera OSD drawing code" - reviewed gui/ OSD, wrote gui/OSD_REVIEW.md, applied fixes to gui/ (untested on camera).
+- 2026-11-16: Thread "Push recent findings to GitHub" - merged open PRs #5, #11, #12 into one branch, dropped duplicate tools/ (already in rec_unlimit/), added local OSD fixes, OSD review and open_gate camera outputs.
